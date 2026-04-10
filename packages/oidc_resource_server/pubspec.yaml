@@ -1,0 +1,17 @@
+name: oidc_resource_server
+description: Verify project-scoped OIDC access tokens (JWKS) and evaluate scopes, realm roles, and FGAC claims from JWT.
+version: 0.1.0
+publish_to: none
+resolution: workspace
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  crypto: ^3.0.6
+  http: ^1.2.2
+  jose: ^0.3.4
+
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.25.0

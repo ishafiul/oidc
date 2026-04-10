@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "lib": [
+      "ESNext"
+    ],
+    "jsx": "react-jsx",
+    "jsxImportSource": "hono/jsx",
+    "types": ["@cloudflare/workers-types/2023-07-01"],
+    "paths": {
+      "@permission-manager/shared": [
+        "../shared/permissions/src/index.ts"
+      ],
+      "@permission-manager/shared/*": [
+        "../shared/permissions/src/*"
+      ]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "references": []
+}

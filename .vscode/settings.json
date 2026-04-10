@@ -1,0 +1,12 @@
+{
+  "files.associations": {
+    "**/wrangler.jsonc": "jsonc"
+  },
+  "files.exclude": {
+    "**/wrangler.jsonc": true
+  },
+  "[jsonc]": {
+    "editor.formatOnSave": false,
+    "editor.defaultFormatter": null
+  }
+}

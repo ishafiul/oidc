@@ -1,0 +1,9 @@
+name: _
+
+environment:
+  sdk: ^3.10.1
+
+dev_dependencies:
+  melos: ^7.0.0-dev.10
+workspace:
+  - packages/oidc_resource_server

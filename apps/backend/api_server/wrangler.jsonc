@@ -1,0 +1,62 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "oidc_server",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-11-14",
+  "vars": {
+    "R2_PUBLIC_URL": "",
+    "SYSTEM_ADMIN_USER_ID": "",
+    "OIDC_ISSUER": "",
+    "OIDC_HOSTED_LOGIN_URL": "https://oidclogin.shafi.dev",
+    "OIDC_DEFAULT_PROJECT_SLUG": "default",
+    "OIDC_CODE_TTL_SECONDS": "300",
+    "OIDC_ACCESS_TOKEN_TTL_SECONDS": "3600",
+    "OIDC_REFRESH_TOKEN_TTL_SECONDS": "2592000",
+    "OIDC_ADMIN_API_KEY": "",
+    "ADMIN_ALLOWED_ORIGINS": "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:3000,https://oidclogin.shafi.dev,https://oidcadmin.shafi.dev,https://oidcadmin.shafi.dev/login",
+    "ADMIN_SESSION_COOKIE_NAME": "oidc_admin_session",
+    "ADMIN_CSRF_COOKIE_NAME": "oidc_admin_csrf",
+    "ADMIN_COOKIE_SECURE": "true",
+    "ADMIN_COOKIE_DOMAIN": ".shafi.dev",
+    "ADMIN_INVITE_BASE_URL": "",
+    "ADMIN_INVITE_FROM_EMAIL": "",
+  },
+  "r2_buckets": [
+    {
+      "binding": "R2_BUCKET",
+      "bucket_name": "ecommerce-assets",
+    },
+  ],
+  // "d1_databases": [
+  //   {
+  //     "binding": "MY_DB",
+  //     "database_name": "my-database",
+  //     "database_id": ""
+  //   }
+  // ],
+  // "ai": {
+  //   "binding": "AI"
+  // },
+  "services": [
+    {
+      "binding": "PERMISSION_MANAGER",
+      "service": "permission-manager",
+      "entrypoint": "FGACService"
+    }
+  ],
+  "observability": {
+    "enabled": false,
+    "head_sampling_rate": 1,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true,
+      "invocation_logs": true,
+    },
+    "traces": {
+      "enabled": true,
+      "persist": true,
+      "head_sampling_rate": 1,
+    },
+  },
+}

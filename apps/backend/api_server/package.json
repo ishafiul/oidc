@@ -1,0 +1,40 @@
+{
+  "name": "houserent-api-server",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy:permission-manager": "wrangler deploy --config ../worker/permission/wrangler.jsonc",
+    "deploy": "pnpm run deploy:permission-manager && wrangler deploy --minify",
+    "cf-typegen": "wrangler types --env-interface CloudflareBindings",
+    "migration:generate": "drizzle-kit generate",
+    "migration:push:local": "dotenvx run -f .env.local -- drizzle-kit push",
+    "migration:push:staging": "dotenvx run -f .env.staging -- drizzle-kit push",
+    "migration:push:production": "dotenvx run -f .env.production -- drizzle-kit push"
+  },
+  "dependencies": {
+    "@orpc/contract": "catalog:",
+    "@hono/zod-openapi": "1.2.0",
+    "@neondatabase/serverless": "^1.0.2",
+    "@orpc/client": "catalog:",
+    "@orpc/openapi": "catalog:",
+    "@orpc/server": "catalog:",
+    "@orpc/zod": "catalog:",
+    "@scalar/hono-api-reference": "^0.9.24",
+    "dotenv": "catalog:",
+    "drizzle-orm": "catalog:",
+    "drizzle-zod": "catalog:",
+    "hono": "catalog:",
+    "resend": "^4.0.2",
+    "uuid": "catalog:",
+    "zod": "catalog:",
+    "common-pack": "workspace:",
+    "permission-manager-worker": "workspace:"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "catalog:",
+    "drizzle-kit": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "wrangler": "catalog:"
+  }
+}

@@ -1,0 +1,5 @@
+# Copy to .dev.vars (gitignored). Secrets go here too.
+
+# Local wrangler: host-only cookies on localhost (parent domain cookies are invalid on localhost)
+ADMIN_COOKIE_DOMAIN=
+ADMIN_COOKIE_SECURE=false

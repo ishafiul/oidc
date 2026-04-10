@@ -1,0 +1,34 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1775409188414,
+      "tag": "0000_lowly_echo",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1775422281407,
+      "tag": "0001_fgac_custom_doc_types",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1775601602255,
+      "tag": "0002_oidc_authorize_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1775858732236,
+      "tag": "0003_funny_ironclad",
+      "breakpoints": true
+    }
+  ]
+}

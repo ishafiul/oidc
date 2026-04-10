@@ -1,0 +1,1 @@
+ALTER TABLE "projects" ADD COLUMN "fgac_custom_doc_types" text[] DEFAULT '{}'::text[] NOT NULL;

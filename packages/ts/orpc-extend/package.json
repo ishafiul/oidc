@@ -1,0 +1,19 @@
+{
+  "name": "common-pack",
+  "version": "1.0.0",
+  "description": "Framework for the project",
+  "main": "index.ts",
+  "type": "module",
+  "dependencies": {
+    "@orpc/contract": "catalog:",
+    "@orpc/openapi": "catalog:",
+    "@orpc/server": "catalog:",
+    "@orpc/zod": "catalog:",
+    "hono": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "catalog:",
+    "typescript": "catalog:"
+  }
+}

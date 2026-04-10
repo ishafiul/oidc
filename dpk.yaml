@@ -1,0 +1,105 @@
+version: ^0.6.4
+
+sortPubspec: true
+
+workspace:
+  - apps/mobile/*
+  - packages/dart/*
+
+catalog:
+  resolution: workspace
+  environment:
+    sdk: ^3.10.1
+  repository: https://github.com/mirzamahmud/house-rental/DPK_PACKAGE_PATH
+  dependencies:
+    dio: ^5.9.0
+    firebase_core: 4.2.1
+    firebase_messaging: 16.0.4
+    retrofit: ^4.9.1
+    ansicolor: ^2.0.3
+    auto_route: ^10.1.0+1
+    envied: ^1.2.0
+    flutter_bloc: ^9.1.1
+    flutter_hooks: ^0.21.3
+    flutter_local_notifications: ^19.5.0
+    freezed_annotation: ^3.1.0
+    get_it: ^9.1.1
+    hydrated_bloc: ^10.1.1
+    injectable: ^2.5.1
+    intl: ^0.20.2
+    json_annotation: ^4.9.0
+    logging: ^1.3.0
+    luthor: ^0.15.0
+    meta: ^1.16.0
+    path: ^1.9.1
+    path_provider: ^2.1.5
+    stream_transform: ^2.1.1
+    auto_route_generator: ^10.1.0
+    build_runner: 2.10.4
+    dependency_validator: ^5.0.3
+    envied_generator: ^1.1.1
+    freezed: ^3.1.0
+    injectable_generator: ^2.7.0
+    json_serializable: ^6.9.5
+    lint: ^2.8.0
+    luthor_generator: ^0.15.0
+
+
+scripts:
+  setup-env:
+    command: |
+      cp .env.example .env.local
+      cp .env.example .env.staging
+      cp .env.example .env.prod
+    runInPackages:
+      - apps/*
+
+  clean:
+    command: dart run build_runner clean
+    runInPackages:
+      - apps/*
+      - packages/*
+
+  l10n:
+    command: |
+      flutter gen-l10n
+    runInPackages:
+      - apps/*
+  l10n-watch:
+    command: |
+      dart run bin/l10n/watch.dart
+    runInPackages:
+      - apps/*
+  swagger:
+    command: |
+      dart run swagger_parser 
+
+  pre:get:
+    command: |
+      melos bootstrap
+
+  pre:build:
+    command: |
+      dpk run l10n \
+      && dpk run swagger
+    runInPackages:
+      - apps/*
+  build:
+    command: dart run build_runner build -d --force-aot
+    runInPackages:
+      - apps/*
+
+  watch:
+    runHooksFrom: build
+    command: dart run build_runner watch -d
+    runInPackages:
+      - apps/*
+
+  check:
+    command: |
+      dart format --set-exit-if-changed . \
+      && dart analyze --fatal-infos --fatal-warnings \
+      && dart run dependency_validator
+    runInPackages:
+      - apps/*
+      - packages/*

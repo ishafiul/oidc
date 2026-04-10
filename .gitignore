@@ -1,0 +1,81 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+out/
+
+# TypeScript
+*.tsbuildinfo
+
+# Tests & coverage
+coverage/
+.nyc_output/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+!.env.template
+.dev.vars
+*.pem
+*.p12
+*.pfx
+
+# Wrangler / Cloudflare
+.wrangler/
+
+# Tooling caches
+.cache/
+.parcel-cache/
+.turbo/
+.vite/
+
+# Dart / Pub
+.dart_tool/
+.pub/
+.pub-cache/
+*.iml
+
+# Android
+**/local.properties
+**/*.jks
+**/*.keystore
+
+# iOS / Xcode / CocoaPods
+**/Pods/
+**/DerivedData/
+*.xcuserstate
+**/xcuserdata/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# IDE
+.idea/
+
+# Editor swap / backup
+*.swp
+*.swo
+*~
+*.orig
+*.rej
+
+# Misc
+.snap-tmp/

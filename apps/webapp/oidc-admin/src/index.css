@@ -1,0 +1,110 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,700&family=IBM+Plex+Mono:wght@400;500;600&family=Sora:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 35 54% 95%;
+  --foreground: 22 28% 13%;
+  --card: 34 36% 98%;
+  --card-foreground: 22 28% 13%;
+  --primary: 18 75% 45%;
+  --primary-foreground: 32 35% 96%;
+  --secondary: 34 35% 88%;
+  --secondary-foreground: 24 27% 20%;
+  --muted: 36 20% 90%;
+  --muted-foreground: 22 10% 36%;
+  --accent: 43 78% 60%;
+  --accent-foreground: 23 40% 20%;
+  --border: 25 24% 78%;
+  --input: 27 27% 80%;
+  --ring: 18 75% 45%;
+  --destructive: 0 62% 42%;
+  --destructive-foreground: 32 35% 96%;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background font-body text-foreground antialiased;
+    min-height: 100vh;
+    background-image:
+      radial-gradient(at 18% 24%, hsl(var(--accent) / 0.25) 0px, transparent 58%),
+      radial-gradient(at 90% 12%, hsl(var(--primary) / 0.16) 0px, transparent 56%),
+      linear-gradient(170deg, hsl(var(--background)), hsl(31 42% 92%));
+    position: relative;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.35;
+    background-image: linear-gradient(
+      to right,
+      transparent 0,
+      transparent calc(100% - 1px),
+      hsl(var(--primary) / 0.08) calc(100% - 1px),
+      hsl(var(--primary) / 0.08) 100%
+    );
+    background-size: 28px 28px;
+    z-index: 0;
+  }
+
+  #root {
+    position: relative;
+    z-index: 1;
+    min-height: 100vh;
+  }
+}
+
+@layer utilities {
+  .panel-sheen {
+    background-size: 200% 100%;
+    animation: shimmer 3.5s linear infinite;
+  }
+
+  .access-ledger-hero {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .access-ledger-hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    opacity: 0.45;
+    pointer-events: none;
+    z-index: 0;
+    background-image: repeating-linear-gradient(
+      -12deg,
+      transparent,
+      transparent 11px,
+      hsl(var(--primary) / 0.04) 11px,
+      hsl(var(--primary) / 0.04) 12px
+    );
+  }
+
+  .access-ledger-noise {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    opacity: 0.035;
+    pointer-events: none;
+    z-index: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+  }
+
+  .access-ledger-matrix {
+    box-shadow:
+      inset 4px 0 0 0 hsl(var(--primary) / 0.42),
+      0 28px 48px -28px hsl(18 70% 18% / 0.22);
+  }
+}

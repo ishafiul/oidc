@@ -1,0 +1,32 @@
+{
+  "name": "@house-rental/oidc-spa-example",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"pnpm dev:server\" \"vite\"",
+    "dev:vite": "vite",
+    "dev:server": "tsx watch server/main.ts",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.1",
+    "dotenv": "catalog:",
+    "hono": "catalog:",
+    "jose": "^5.9.6",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@types/react": "^18.3.23",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^5.0.4",
+    "concurrently": "^9.1.2",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "next-trpc-client",
+  "version": "1.0.0",
+  "description": "ORPC client for Next.js with Tanstack Query",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./server": {
+      "types": "./src/serverClient.tsx",
+      "default": "./src/serverClient.tsx"
+    }
+  },
+  "dependencies": {
+    "@orpc/client": "catalog:",
+    "@orpc/tanstack-query": "1.7.11",
+    "@tanstack/react-query": "5.90.12",
+    "houserent-api-server": "workspace:",
+    "next": "^16.1.1",
+    "react": "^19.2.3",
+    "server-only": "^0.0.1"
+  },
+  "devDependencies": {
+    "@orpc/server": "catalog:",
+    "@types/react": "^19.2.7",
+    "typescript": "catalog:"
+  }
+}
