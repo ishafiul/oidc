@@ -4,6 +4,13 @@ This repo is an **experimental** playground: a small, self-hosted stack to **reu
 
 It is not a production SLA product. APIs, schema, and UX may change without notice(Vibe Coded).
 
+### Deployed
+
+| App | URL |
+| --- | --- |
+| Hosted login (`oidc-login`) | https://oidclogin.shafi.dev |
+| Admin (`oidc-admin`) | https://oidcadmin.shafi.dev |
+
 ---
 
 ## Why this exists
