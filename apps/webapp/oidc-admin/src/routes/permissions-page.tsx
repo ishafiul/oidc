@@ -39,6 +39,7 @@ import { cn } from '@/lib/utils';
 import {
 	BookOpen,
 	Boxes,
+	Clock,
 	GitBranch,
 	Pencil,
 	Search,
@@ -61,6 +62,17 @@ function docTypeLabel(t: string): string {
 
 function isBuiltinFgacRelation(name: string): boolean {
 	return (FGAC_RELATIONS as readonly string[]).includes(name);
+}
+
+function defaultGrantExpiryLocalValue(): string {
+	const d = new Date();
+	d.setTime(d.getTime() + 7 * 24 * 60 * 60 * 1000);
+	const y = d.getFullYear();
+	const mo = String(d.getMonth() + 1).padStart(2, '0');
+	const day = String(d.getDate()).padStart(2, '0');
+	const h = String(d.getHours()).padStart(2, '0');
+	const min = String(d.getMinutes()).padStart(2, '0');
+	return `${y}-${mo}-${day}T${h}:${min}`;
 }
 
 type TabId = 'schema' | 'grants' | 'groups' | 'inspector' | 'advanced';
@@ -99,6 +111,8 @@ export function PermissionsPage() {
 	const [pickedRelation, setPickedRelation] = useState<string>(FGAC_RELATIONS[0]);
 	const [grantResourceType, setGrantResourceType] = useState<FgacDocType>('project');
 	const [grantResourceId, setGrantResourceId] = useState('');
+	const [grantExpiryLimited, setGrantExpiryLimited] = useState(false);
+	const [grantExpiryAtLocal, setGrantExpiryAtLocal] = useState('');
 	const [grantResourceUserQuery, setGrantResourceUserQuery] = useState('');
 	const [grantError, setGrantError] = useState<string | null>(null);
 
@@ -193,6 +207,13 @@ export function PermissionsPage() {
 	}, [grantResourceType, projectId]);
 
 	useEffect(() => {
+		if (grantResourceType === 'project') {
+			return;
+		}
+		setGrantResourceId('');
+	}, [grantResourceType]);
+
+	useEffect(() => {
 		if (simResourceType === 'project' && projectId) {
 			setSimResourceId(projectId);
 		}
@@ -224,14 +245,31 @@ export function PermissionsPage() {
 					: `group:${effectiveGrantGroup}`;
 			if (subjectMode === 'user' && !grantUserId) throw new Error('Pick a user');
 			if (subjectMode === 'group' && !effectiveGrantGroup) throw new Error('Pick or enter a group');
+			let expiresAt: number | undefined;
+			if (grantExpiryLimited) {
+				if (!grantExpiryAtLocal.trim()) {
+					throw new Error('Choose an expiry date and time');
+				}
+				const ms = new Date(grantExpiryAtLocal).getTime();
+				if (!Number.isFinite(ms)) {
+					throw new Error('Invalid expiry date');
+				}
+				if (ms <= Date.now()) {
+					throw new Error('Expiry must be in the future');
+				}
+				expiresAt = ms;
+			}
 			return grantFgacTuple(apiBaseUrl, slug, {
 				subject,
 				relation: pickedRelation,
 				resource: { type: grantResourceType, id: grantResourceId },
+				...(expiresAt !== undefined ? { expiresAt } : {}),
 			});
 		},
 		onSuccess: async () => {
 			setGrantError(null);
+			setGrantExpiryLimited(false);
+			setGrantExpiryAtLocal('');
 			await invalidatePerm();
 		},
 		onError: (e) => setGrantError(e instanceof Error ? e.message : 'Grant failed'),
@@ -637,11 +675,14 @@ export function PermissionsPage() {
 			) : null}
 
 			{tab === 'grants' ? (
-				<div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-					<Card className="border-border/70">
-						<CardHeader>
-							<CardTitle className="font-display text-lg">Grant or revoke</CardTitle>
-							<CardDescription>
+				<div className="grid gap-6 lg:grid-cols-[1fr_minmax(280px,320px)]">
+					<Card className="border-border/70 border-l-[3px] border-l-primary/45 shadow-sm">
+						<CardHeader className="space-y-1.5 pb-4">
+							<p className="font-mono text-[10px] font-semibold uppercase tracking-[0.2em] text-primary/90">
+								Access ledger
+							</p>
+							<CardTitle className="font-display text-xl tracking-tight">Grant or revoke</CardTitle>
+							<CardDescription className="leading-relaxed">
 								Choose subject, resource type, then a relation that is{' '}
 								<span className="font-medium text-foreground">defined for that type</span> in the schema (the API
 								rejects undefined pairs). Project uses this workspace id automatically.
@@ -824,6 +865,62 @@ export function PermissionsPage() {
 								</p>
 							) : null}
 
+							<div className="space-y-3 rounded-xl border border-border/60 bg-gradient-to-br from-secondary/25 via-card to-card p-4 shadow-sm">
+								<div className="flex items-center gap-2 text-primary">
+									<Clock className="size-4 shrink-0" strokeWidth={2} />
+									<span className="font-display text-sm font-semibold tracking-tight text-foreground">
+										Access duration
+									</span>
+								</div>
+								<div className="flex flex-wrap gap-2">
+									<Button
+										type="button"
+										size="sm"
+										variant={!grantExpiryLimited ? 'default' : 'outline'}
+										className={cn(!grantExpiryLimited && 'shadow-sm')}
+										onClick={() => {
+											setGrantExpiryLimited(false);
+											setGrantExpiryAtLocal('');
+										}}
+									>
+										Until revoked
+									</Button>
+									<Button
+										type="button"
+										size="sm"
+										variant={grantExpiryLimited ? 'default' : 'outline'}
+										className={cn(grantExpiryLimited && 'shadow-sm')}
+										onClick={() => {
+											setGrantExpiryLimited(true);
+											setGrantExpiryAtLocal((v) => (v.trim().length > 0 ? v : defaultGrantExpiryLocalValue()));
+										}}
+									>
+										Expires on…
+									</Button>
+								</div>
+								{grantExpiryLimited ? (
+									<div className="animate-rise-in space-y-1.5">
+										<Label htmlFor="grant-expires-at">Until (local)</Label>
+										<Input
+											id="grant-expires-at"
+											type="datetime-local"
+											className="font-mono text-sm"
+											value={grantExpiryAtLocal}
+											onChange={(e) => setGrantExpiryAtLocal(e.target.value)}
+										/>
+										<p className="text-xs leading-relaxed text-muted-foreground">
+											After this instant the grant is ignored until you issue a new one. Choose a future time; revoke
+											early if you need to cut access sooner.
+										</p>
+									</div>
+								) : (
+									<p className="text-xs leading-relaxed text-muted-foreground">
+										No <span className="font-mono text-foreground/85">expires_at</span> is stored — the tuple stays
+										effective until you revoke it here or via the API.
+									</p>
+								)}
+							</div>
+
 							<div className="space-y-1.5">
 								<Label>Resource</Label>
 								{grantResourceType === 'project' ? (
@@ -860,7 +957,7 @@ export function PermissionsPage() {
 											</option>
 										))}
 									</select>
-								) : (
+								) : grantResourceType === 'user' ? (
 									<>
 										<div className="relative">
 											<Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -887,6 +984,19 @@ export function PermissionsPage() {
 											))}
 										</div>
 									</>
+								) : (
+									<div className="space-y-1.5">
+										<Input
+											className="font-mono text-sm"
+											placeholder="Resource id (UUID, slug, or stable key from your app)"
+											value={grantResourceId}
+											onChange={(e) => setGrantResourceId(e.target.value)}
+										/>
+										<p className="text-xs text-muted-foreground">
+											Custom doc type <span className="font-mono text-foreground/90">{grantResourceType}</span> — enter
+											the same <span className="font-mono">id</span> your API uses when checking permissions.
+										</p>
+									</div>
 								)}
 							</div>
 
@@ -898,7 +1008,8 @@ export function PermissionsPage() {
 										grantRelationNamesForResourceType === null ||
 										grantRelationNamesForResourceType.length === 0 ||
 										(subjectMode === 'user' && !grantUserId) ||
-										(subjectMode === 'group' && !effectiveGrantGroup)
+										(subjectMode === 'group' && !effectiveGrantGroup) ||
+										(grantExpiryLimited && !grantExpiryAtLocal.trim())
 									}
 									onClick={() => grantMut.mutate()}
 								>
@@ -923,10 +1034,10 @@ export function PermissionsPage() {
 						</CardContent>
 					</Card>
 
-					<Card className="h-fit border-border/60 bg-secondary/5">
-						<CardHeader>
-							<CardTitle className="flex items-center gap-2 font-display text-base">
-								<BookOpen className="size-4" />
+					<Card className="h-fit border-border/60 border-l-[3px] border-l-accent/50 bg-gradient-to-b from-secondary/30 to-card/90 shadow-sm">
+						<CardHeader className="pb-3">
+							<CardTitle className="flex items-center gap-2 font-display text-base tracking-tight">
+								<BookOpen className="size-4 text-primary" strokeWidth={2} />
 								How it fits
 							</CardTitle>
 						</CardHeader>
@@ -938,7 +1049,9 @@ export function PermissionsPage() {
 							</p>
 							<p>
 								<span className="font-medium text-foreground">Grants</span> attach a subject to one resource row (project
-								id, client id, etc.) with a relation allowed for that row&apos;s type.
+								id, client id, custom id, etc.) with a relation allowed for that row&apos;s type. Optional{' '}
+								<span className="font-mono text-xs">expiresAt</span> (ms since epoch) ends access automatically; otherwise
+								revoke when done.
 							</p>
 							<p>
 								<span className="font-medium text-foreground">Groups</span> are named sets of user ids; grant{' '}

@@ -17,7 +17,7 @@ const RelationTupleDataSchema = z.object({
 });
 
 const TupleValueSchema = z.object({
-	expires_at: z.number().optional(),
+	expires_at: z.union([z.number(), z.null()]).optional(),
 });
 
 const RelationDefinitionDataSchema = z.object({
@@ -78,7 +78,9 @@ export class RelationshipRepository implements IRelationshipRepository {
 	private async getTupleValue(key: string): Promise<{ expires_at?: number } | null> {
 		const data = await this.storage.get(key);
 		if (!data) return null;
-		return TupleValueSchema.parse(JSON.parse(data));
+		const raw = TupleValueSchema.parse(JSON.parse(data));
+		const at = raw.expires_at;
+		return { expires_at: at === null || at === undefined ? undefined : at };
 	}
 
 	private async deleteByPrefix(prefix: string): Promise<void> {
@@ -117,7 +119,7 @@ export class RelationshipRepository implements IRelationshipRepository {
 				this.storage.put(
 					this.tupleKey(type, id, tuple.subject, tuple.relation),
 					JSON.stringify({
-						expires_at: tuple.expires_at,
+						expires_at: tuple.expires_at ?? null,
 					})
 				)
 			)
@@ -132,7 +134,7 @@ export class RelationshipRepository implements IRelationshipRepository {
 		await this.storage.put(
 			this.tupleKey(type, id, tuple.subject, tuple.relation),
 			JSON.stringify({
-				expires_at: tuple.expires_at,
+				expires_at: tuple.expires_at ?? null,
 			})
 		);
 	}

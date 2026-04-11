@@ -42,7 +42,7 @@ export function buildProjectFgacConfig(projectId: string, customDocTypes: readon
 	];
 	return {
 		docTypes,
-		relations: PROJECT_FGAC_RELATIONS,
+		relations: PROJECT_FGAC_RELATIONS as unknown as readonly [string, ...string[]],
 		permissions: PROJECT_FGAC_PERMISSIONS,
 		projectId,
 		defaultRelations: {

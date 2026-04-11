@@ -65,7 +65,6 @@ import {
 	buildProjectFgacConfig,
 	listMergedFgacDocTypes,
 	PROJECT_FGAC_PERMISSIONS,
-	PROJECT_FGAC_RELATIONS,
 	SYSTEM_FGAC_DOC_TYPES,
 } from '../permissions/project-fgac';
 
@@ -194,7 +193,7 @@ function validateDocType(type: string, project: ProjectFgacRow) {
 	return type;
 }
 
-function validateRelationName(relation: string): (typeof PROJECT_FGAC_RELATIONS)[number] {
+function validateRelationName(relation: string): string {
 	const t = relation.trim();
 	if (t.length === 0) {
 		throw new ORPCError('BAD_REQUEST', { message: 'Relation name is required' });
@@ -202,12 +201,7 @@ function validateRelationName(relation: string): (typeof PROJECT_FGAC_RELATIONS)
 	if (t.length > 128) {
 		throw new ORPCError('BAD_REQUEST', { message: 'Relation name is too long' });
 	}
-	if (!(PROJECT_FGAC_RELATIONS as readonly string[]).includes(t)) {
-		throw new ORPCError('BAD_REQUEST', {
-			message: `Invalid relation. Supported: ${PROJECT_FGAC_RELATIONS.join(', ')}`,
-		});
-	}
-	return t as (typeof PROJECT_FGAC_RELATIONS)[number];
+	return t;
 }
 
 function validatePermission(permission: string) {

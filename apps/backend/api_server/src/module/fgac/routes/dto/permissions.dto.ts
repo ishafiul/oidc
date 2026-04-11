@@ -77,10 +77,19 @@ export const grantRelationDto = z.object({
   }),
   relation: z.string().min(1),
   resource: resourceDto,
-  expiresAt: z.number().nullable().optional(),
+  expiresAt: z
+    .number()
+    .int()
+    .positive()
+    .nullable()
+    .optional()
+    .describe(
+      'Unix timestamp in milliseconds when the grant stops applying. Omit or null for no automatic expiry (until revoked).',
+    ),
 }).meta({
   title: "GrantRelationRequest",
-  description: "Request to grant a relation to a subject for a specific resource",
+  description:
+    'Grant a relation on a resource. expiresAt: optional end time (ms since epoch); omit or null keeps the grant until revoke.',
 });
 
 export const revokeRelationDto = z.object({
@@ -98,10 +107,19 @@ export const batchGrantDto = z.object({
   subject: z.string().min(1).regex(/^(user|group|api_key):/),
   relation: z.string().min(1),
   resources: z.array(resourceDto).min(1),
-  expiresAt: z.number().nullable().optional(),
+  expiresAt: z
+    .number()
+    .int()
+    .positive()
+    .nullable()
+    .optional()
+    .describe(
+      'Unix timestamp in milliseconds when grants stop applying. Omit or null for no automatic expiry (until revoked).',
+    ),
 }).meta({
   title: "BatchGrantRequest",
-  description: "Request to grant a relation to a subject for multiple resources",
+  description:
+    'Batch grant the same relation on multiple resources. expiresAt optional; omit or null until revoke.',
 });
 
 export const batchRevokeDto = z.object({
