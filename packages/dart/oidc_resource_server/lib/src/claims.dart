@@ -11,6 +11,19 @@ class FgacRelationClaim {
   final String relation;
 }
 
+/// One permission entry embedded in the access token (`fgac_permissions` claim).
+class FgacPermissionClaim {
+  const FgacPermissionClaim({
+    required this.resourceType,
+    required this.resourceId,
+    required this.permissions,
+  });
+
+  final String resourceType;
+  final String resourceId;
+  final List<String> permissions;
+}
+
 Set<String> parseScopeClaim(Object? scope) {
   if (scope is! String || scope.isEmpty) {
     return {};
@@ -60,6 +73,30 @@ List<FgacRelationClaim> parseFgacRelations(Map<String, dynamic> claims) {
     if (t is String && id is String && r is String) {
       out.add(FgacRelationClaim(resourceType: t, resourceId: id, relation: r));
     }
+  }
+  return out;
+}
+
+List<FgacPermissionClaim> parseFgacPermissions(Map<String, dynamic> claims) {
+  final raw = claims['fgac_permissions'];
+  if (raw is! List) {
+    return const [];
+  }
+  final out = <FgacPermissionClaim>[];
+  for (final item in raw) {
+    if (item is! Map<String, dynamic>) continue;
+    final t = item['resource_type'];
+    final id = item['resource_id'];
+    final perms = item['permissions'];
+    if (t is! String || id is! String || perms is! List) continue;
+    final normalized = perms.whereType<String>().toSet().toList()..sort();
+    out.add(
+      FgacPermissionClaim(
+        resourceType: t,
+        resourceId: id,
+        permissions: normalized,
+      ),
+    );
   }
   return out;
 }
@@ -118,4 +155,19 @@ bool hasAllFgacRelations(
     }
   }
   return true;
+}
+
+bool hasFgacPermission(
+  List<FgacPermissionClaim> permissionClaims,
+  String permission,
+  String resourceType,
+  String resourceId,
+) {
+  for (final entry in permissionClaims) {
+    if (entry.resourceType != resourceType) continue;
+    if (entry.resourceId != resourceId && entry.resourceId != '*') continue;
+    if (!entry.permissions.contains(permission)) continue;
+    return true;
+  }
+  return false;
 }

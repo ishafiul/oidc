@@ -1,6 +1,6 @@
 # oidc_login_demo
 
-Minimal Flutter app to exercise [`oidc_flutter_client`](../../packages/oidc_flutter_client).
+Minimal Flutter app to exercise [`oidc_flutter_client`](../../packages/dart/oidc_flutter_client).
 
 ## Production (release builds)
 

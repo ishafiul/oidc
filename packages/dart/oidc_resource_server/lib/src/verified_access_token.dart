@@ -8,6 +8,7 @@ class VerifiedAccessToken {
     required this.scopes,
     required this.realmRoles,
     required this.resourceAccess,
+    required this.fgacPermissions,
     required this.fgacRelations,
     required this.fgacTruncated,
     required this.claims,
@@ -23,6 +24,7 @@ class VerifiedAccessToken {
       scopes: parseScopeClaim(claims['scope']),
       realmRoles: parseRealmRoles(claims),
       resourceAccess: parseResourceAccess(claims),
+      fgacPermissions: parseFgacPermissions(claims),
       fgacRelations: parseFgacRelations(claims),
       fgacTruncated: parseFgacTruncated(claims),
       claims: Map<String, dynamic>.unmodifiable(Map<String, dynamic>.from(claims)),
@@ -33,6 +35,7 @@ class VerifiedAccessToken {
   final Set<String> scopes;
   final List<String> realmRoles;
   final Map<String, List<String>> resourceAccess;
+  final List<FgacPermissionClaim> fgacPermissions;
   final List<FgacRelationClaim> fgacRelations;
   final bool fgacTruncated;
 
@@ -56,8 +59,20 @@ class VerifiedAccessToken {
     return matchesFgacGrant(fgacRelations, resourceType, resourceId, relation: relation);
   }
 
+  bool hasPermission(
+    String permission,
+    String resourceType,
+    String resourceId,
+  ) {
+    return hasFgacPermission(fgacPermissions, permission, resourceType, resourceId);
+  }
+
   /// High-level FGAC / permission-style check (see [PermissionRequirement]).
   bool satisfies(PermissionRequirement requirement) {
-    return satisfiesRequirement(fgacRelations, requirement);
+    return satisfiesRequirement(
+      fgacRelations,
+      requirement,
+      fgacPermissions: fgacPermissions,
+    );
   }
 }

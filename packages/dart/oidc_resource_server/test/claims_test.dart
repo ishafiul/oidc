@@ -20,6 +20,24 @@ void main() {
     });
   });
 
+  group('fgac_permissions', () {
+    test('parse and match explicit permission claim', () {
+      final claims = parseFgacPermissions({
+        'fgac_permissions': [
+          {
+            'resource_type': 'doc',
+            'resource_id': 'x',
+            'permissions': ['read', 'write', 'read'],
+          },
+        ],
+      });
+
+      expect(hasFgacPermission(claims, 'read', 'doc', 'x'), isTrue);
+      expect(hasFgacPermission(claims, 'delete', 'doc', 'x'), isFalse);
+      expect(hasFgacPermission(claims, 'read', 'doc', 'other'), isFalse);
+    });
+  });
+
   group('effectivePermissionsOnResource', () {
     test('inherits viewer permissions from editor', () {
       const schema = <String, Map<String, FgacRelationDefinition>>{
@@ -53,6 +71,29 @@ void main() {
       final ok = satisfiesRequirement(
         claims,
         RequireAnyPermission({'read'}, FgacResourceRef(type: 'doc', id: 'x'), schema),
+      );
+      expect(ok, isTrue);
+    });
+
+    test('RequireAnyPermission works with fgac_permissions only', () {
+      const schema = <String, Map<String, FgacRelationDefinition>>{
+        'doc': {
+          'viewer': FgacRelationDefinition(permissions: {'read'}),
+        },
+      };
+      final relationClaims = <FgacRelationClaim>[];
+      final permissionClaims = [
+        const FgacPermissionClaim(
+          resourceType: 'doc',
+          resourceId: 'x',
+          permissions: ['read'],
+        ),
+      ];
+
+      final ok = satisfiesRequirement(
+        relationClaims,
+        RequireAnyPermission({'read'}, const FgacResourceRef(type: 'doc', id: 'x'), schema),
+        fgacPermissions: permissionClaims,
       );
       expect(ok, isTrue);
     });

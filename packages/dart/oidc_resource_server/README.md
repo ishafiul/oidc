@@ -13,7 +13,7 @@ From another package in the same repo (workspace root lists this package):
 ```yaml
 dependencies:
   oidc_resource_server:
-    path: ../packages/oidc_resource_server   # adjust relative path
+    path: ../packages/dart/oidc_resource_server   # adjust relative path
 ```
 
 Or use the path that matches your monorepo layout.
@@ -134,13 +134,15 @@ If `token.fgacTruncated` is `true`, the JWT may omit some tuples. Do not rely on
 | **`scopes`** | OAuth scopes from the `scope` claim (space-separated). |
 | **`realmRoles`** | `realm_access.roles` (e.g. project membership role, `system_admin`). |
 | **`resourceAccess`** | `resource_access` map: client id → role list (Keycloak-style mirror). |
-| **`fgacRelations`** | Parsed `fgac_relations` tuples. |
+| **`fgacPermissions`** | Parsed `fgac_permissions` entries. |
+| **`fgacRelations`** | Parsed `fgac_relations` tuples (legacy/compat). |
 | **`fgacTruncated`** | `fgac_truncated` claim. |
 | **`claims`** | Full payload map for custom claims. |
 | **`hasScope`**`(String)` | OAuth scope present. |
 | **`hasRealmRole`**`(String)` | Role in `realmRoles`. |
 | **`hasClientRole`**`(String oauthClientId, String role)` | Role under `resource_access[clientId]`. |
 | **`hasFgacGrant`**`(resourceType, resourceId, { String? relation })` | FGAC tuple match; `relation` optional (any relation on that resource). |
+| **`hasPermission`**`(permission, resourceType, resourceId)` | Direct permission match from `fgac_permissions` (supports `resource_id: "*"`) |
 | **`satisfies`**`(PermissionRequirement)` | See below. |
 
 ### Permission requirements (`PermissionRequirement`)
@@ -157,7 +159,7 @@ Aligned with common **relation / anyOf / allOf / anyRelation / allRelations** id
 
 **`FgacResourceRef`**: `type` + `id`—use the same **resource type and id** as in the admin FGAC grants.
 
-**`satisfiesRequirement`**`(List<FgacRelationClaim>, PermissionRequirement)` → `bool` — same logic as `VerifiedAccessToken.satisfies`, useful for tests or custom pipelines.
+**`satisfiesRequirement`**`(List<FgacRelationClaim>, PermissionRequirement, { List<FgacPermissionClaim>? fgacPermissions })` → `bool` — same logic as `VerifiedAccessToken.satisfies`; if `fgac_permissions` are present, permission checks use them directly.
 
 ### FGAC schema (for permission expansion)
 
@@ -180,6 +182,7 @@ Useful if you verified a JWT elsewhere but want the same parsing rules:
 | **`parseRealmRoles`** | `realm_access.roles`. |
 | **`parseResourceAccess`** | `resource_access` map. |
 | **`parseFgacRelations`** | `fgac_relations` list. |
+| **`parseFgacPermissions`** | `fgac_permissions` list. |
 | **`parseFgacTruncated`** | `fgac_truncated` bool. |
 | **`matchesFgacGrant`** | Tuple match with optional relation filter + `*` resource id. |
 | **`hasFgacRelation`** / **`hasAnyFgacRelation`** / **`hasAllFgacRelations`** | Convenience wrappers. |
@@ -195,7 +198,7 @@ Useful if you verified a JWT elsewhere but want the same parsing rules:
 ## Tests
 
 ```bash
-cd packages/oidc_resource_server
+cd packages/dart/oidc_resource_server
 dart test
 ```
 

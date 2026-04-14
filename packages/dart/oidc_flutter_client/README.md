@@ -21,7 +21,7 @@ Authorization requires **PKCE**. The server can either:
 ```yaml
 dependencies:
   oidc_flutter_client:
-    path: ../path/to/packages/oidc_flutter_client
+    path: ../path/to/packages/dart/oidc_flutter_client
 ```
 
 ### Android

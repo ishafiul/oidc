@@ -2,6 +2,4 @@ name: house_rental
 
 packages:
   - packages/dart/*
-  - packages/oidc_flutter_client
-  - packages/oidc_resource_server
   - apps/mobile/*

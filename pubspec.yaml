@@ -6,4 +6,5 @@ environment:
 dev_dependencies:
   melos: ^7.0.0-dev.10
 workspace:
-  - packages/oidc_resource_server
+  - packages/dart/oidc_resource_server
+  - packages/dart/oidc_flutter_client

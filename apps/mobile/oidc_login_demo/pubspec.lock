@@ -323,7 +323,7 @@ packages:
   oidc_flutter_client:
     dependency: "direct main"
     description:
-      path: "../../../packages/oidc_flutter_client"
+      path: "../../../packages/dart/oidc_flutter_client"
       relative: true
     source: path
     version: "0.1.0"

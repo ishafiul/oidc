@@ -60,7 +60,9 @@ class RequireAllPermissions extends PermissionRequirement {
 bool satisfiesRequirement(
   List<FgacRelationClaim> fgacClaims,
   PermissionRequirement requirement,
+  {List<FgacPermissionClaim>? fgacPermissions}
 ) {
+  final permissionClaims = fgacPermissions ?? const <FgacPermissionClaim>[];
   return switch (requirement) {
     RequireRelation(:final relation, :final resource) => hasFgacRelation(
         fgacClaims,
@@ -81,17 +83,34 @@ bool satisfiesRequirement(
         resource.id,
       ),
     RequireAnyPermission(:final permissions, :final resource, :final schema) =>
-      _effectivePerms(fgacClaims, resource, schema).intersection(permissions).isNotEmpty,
+      _effectivePerms(
+        fgacClaims,
+        permissionClaims,
+        resource,
+        schema,
+      ).intersection(permissions).isNotEmpty,
     RequireAllPermissions(:final permissions, :final resource, :final schema) =>
-      permissions.every(_effectivePerms(fgacClaims, resource, schema).contains),
+      permissions.every(_effectivePerms(fgacClaims, permissionClaims, resource, schema).contains),
   };
 }
 
 Set<String> _effectivePerms(
   List<FgacRelationClaim> relations,
+  List<FgacPermissionClaim> permissionClaims,
   FgacResourceRef resource,
   FgacSchema schema,
 ) {
+  // If explicit permission claims exist in token, trust them directly.
+  if (permissionClaims.isNotEmpty) {
+    final out = <String>{};
+    for (final entry in permissionClaims) {
+      if (entry.resourceType != resource.type) continue;
+      if (entry.resourceId != resource.id && entry.resourceId != '*') continue;
+      out.addAll(entry.permissions);
+    }
+    return out;
+  }
+
   final held = relationsHeldOnResource(relations, resource.type, resource.id);
   return effectivePermissionsOnResource(
     schema: schema,
