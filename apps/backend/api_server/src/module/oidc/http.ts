@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import type { HonoTypes } from '../../core/context';
-import { setBrowserCorsHeaders } from '../../core/browser-cors';
+import { setPublicOidcMetadataCorsHeaders } from '../../core/browser-cors';
 import { OidcError, OidcService } from './service';
 
 function readBodyValue(body: Record<string, unknown>, key: string): string | undefined {
@@ -206,7 +206,7 @@ async function userInfoHandler(c: Context<HonoTypes>, explicitSlug?: string) {
 export const oidcHttpRoutes = new Hono<HonoTypes>();
 
 oidcHttpRoutes.use('*', async (c, next) => {
-	setBrowserCorsHeaders(c);
+	setPublicOidcMetadataCorsHeaders(c);
 	if (c.req.method === 'OPTIONS') {
 		return c.body(null, 204);
 	}

@@ -81,6 +81,20 @@ export function setBrowserCorsHeaders(c: HonoContext): void {
 	}
 }
 
+export function setPublicOidcMetadataCorsHeaders(c: HonoContext): void {
+	c.header("Access-Control-Allow-Origin", "*");
+	c.header(
+		"Access-Control-Allow-Headers",
+		"authorization, content-type, x-csrf-token",
+	);
+	c.header(
+		"Access-Control-Allow-Methods",
+		"GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
+	);
+	c.header("Access-Control-Allow-Credentials", undefined);
+	c.header("Vary", undefined);
+}
+
 export function mergeBrowserCorsIntoResponse(
 	c: HonoContext,
 	response: Response,
