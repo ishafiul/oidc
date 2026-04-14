@@ -1,13 +1,14 @@
 import * as jose from 'jose';
 
 import {
+	parseFgacPermissions,
 	parseFgacRelations,
 	parseFgacTruncated,
 	parseRealmRoles,
 	parseResourceAccess,
 	parseScopeClaim,
 } from './claims';
-import type { FgacRelationClaim } from './claims';
+import type { FgacPermissionClaim, FgacRelationClaim } from './claims';
 import { OidcTokenVerificationError } from './errors';
 
 export type VerifiedAccessToken = Readonly<{
@@ -15,6 +16,7 @@ export type VerifiedAccessToken = Readonly<{
 	scopes: ReadonlySet<string>;
 	realmRoles: readonly string[];
 	resourceAccess: ReadonlyMap<string, readonly string[]>;
+	fgacPermissions: readonly FgacPermissionClaim[];
 	fgacRelations: readonly FgacRelationClaim[];
 	fgacTruncated: boolean;
 	claims: Readonly<Record<string, unknown>>;
@@ -111,6 +113,7 @@ export class OidcAccessTokenVerifier {
 			scopes: parseScopeClaim(claims['scope']),
 			realmRoles: parseRealmRoles(claims),
 			resourceAccess: parseResourceAccess(claims),
+			fgacPermissions: parseFgacPermissions(claims),
 			fgacRelations: parseFgacRelations(claims),
 			fgacTruncated: parseFgacTruncated(claims),
 			claims,

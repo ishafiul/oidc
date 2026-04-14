@@ -9,6 +9,7 @@ import { canReadDocument, grantRead, listGrantees } from './grants';
 import {
   createJwksResolver,
   fetchDiscovery,
+  fgacPermissionsFromPayload,
   fgacRelationsFromPayload,
   fgacTruncatedFromPayload,
   hasClientRole,
@@ -102,6 +103,7 @@ app.get('/api/me', requireAuth, (c) => {
   });
   const realm_access = realmAccessFromPayload(payload);
   const resource_access = resourceAccessFromPayload(payload);
+  const fgac_permissions = fgacPermissionsFromPayload(payload);
   const fgac_relations = fgacRelationsFromPayload(payload);
   const fgac_truncated = fgacTruncatedFromPayload(payload);
   return c.json({
@@ -109,6 +111,7 @@ app.get('/api/me', requireAuth, (c) => {
     scopes: scopeList,
     realm_access,
     resource_access,
+    fgac_permissions,
     fgac_relations,
     fgac_truncated,
     jwtAuthorizationExamples: {

@@ -1,11 +1,16 @@
 export {
 	parseFgacRelations,
+	parseFgacPermissions,
 	parseFgacTruncated,
 	parseRealmRoles,
 	parseResourceAccess,
 	parseScopeClaim,
+	fgacPermissionEntrySchema,
+	fgacRelationEntrySchema,
+	hasFgacPermission,
 	matchesFgacGrant,
 	relationsHeldOnResource,
+	type FgacPermissionClaim,
 	type FgacRelationClaim,
 } from './claims';
 export {

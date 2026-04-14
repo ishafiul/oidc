@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { matchesFgacGrant, parseFgacRelations } from '../src/claims';
+import { hasFgacPermission, matchesFgacGrant, parseFgacPermissions, parseFgacRelations } from '../src/claims';
 
 describe('parseFgacRelations', () => {
 	it('parses snake_case tuples', () => {
@@ -21,5 +21,20 @@ describe('parseFgacRelations', () => {
 			fgac_relations: [{ resource_type: 'doc', resource_id: '*', relation: 'viewer' }],
 		});
 		expect(matchesFgacGrant(rels, 'doc', 'anything', 'viewer')).toBe(true);
+	});
+});
+
+describe('parseFgacPermissions', () => {
+	it('parses permission entries and de-duplicates permissions', () => {
+		const perms = parseFgacPermissions({
+			fgac_permissions: [
+				{ resource_type: 'blog', resource_id: '1', permissions: ['read', 'write', 'read'] },
+				{ resource_type: 'doc', resource_id: '*', permissions: ['read'] },
+			],
+		});
+		expect(perms).toHaveLength(2);
+		expect(hasFgacPermission(perms, 'blog', '1', 'write')).toBe(true);
+		expect(hasFgacPermission(perms, 'blog', '1', 'delete')).toBe(false);
+		expect(hasFgacPermission(perms, 'doc', 'anything', 'read')).toBe(true);
 	});
 });

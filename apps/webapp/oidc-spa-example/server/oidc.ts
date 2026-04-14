@@ -84,6 +84,12 @@ export type FgacRelationEntry = {
   relation: string;
 };
 
+export type FgacPermissionEntry = {
+  resource_type: string;
+  resource_id: string;
+  permissions: string[];
+};
+
 export function fgacRelationsFromPayload(payload: JWTPayload): FgacRelationEntry[] {
   const raw = payload['fgac_relations'];
   if (!Array.isArray(raw)) {
@@ -111,6 +117,37 @@ export function fgacRelationsFromPayload(payload: JWTPayload): FgacRelationEntry
 
 export function fgacTruncatedFromPayload(payload: JWTPayload): boolean {
   return payload['fgac_truncated'] === true;
+}
+
+export function fgacPermissionsFromPayload(payload: JWTPayload): FgacPermissionEntry[] {
+  const raw = payload['fgac_permissions'];
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const out: FgacPermissionEntry[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') {
+      continue;
+    }
+    const o = item as Record<string, unknown>;
+    const resource_type = o['resource_type'];
+    const resource_id = o['resource_id'];
+    const permissions = o['permissions'];
+    if (
+      typeof resource_type !== 'string' ||
+      typeof resource_id !== 'string' ||
+      !Array.isArray(permissions)
+    ) {
+      continue;
+    }
+    const normalized = permissions.filter((x): x is string => typeof x === 'string');
+    out.push({
+      resource_type,
+      resource_id,
+      permissions: Array.from(new Set(normalized)),
+    });
+  }
+  return out;
 }
 
 export function matchesFgacGrant(

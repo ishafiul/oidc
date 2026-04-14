@@ -26,7 +26,18 @@ const DEFAULT_SCOPES = ['openid', 'profile', 'email'] as const;
 
 const PROJECT_MEMBER_ROLES = ['owner', 'admin', 'editor', 'viewer'] as const;
 
-const FGAC_RELATIONS_MAX_IN_JWT = 100;
+const FGAC_PERMISSION_ENTRIES_MAX_IN_JWT = 100;
+
+type FgacPermissionEntry = {
+	resource_type: string;
+	resource_id: string;
+	permissions: string[];
+};
+
+type FgacRelationDefinition = {
+	permissions: string[];
+	inherits: string[];
+};
 
 function isProjectMemberRole(value: string): value is (typeof PROJECT_MEMBER_ROLES)[number] {
 	return (PROJECT_MEMBER_ROLES as readonly string[]).includes(value);
@@ -530,11 +541,42 @@ export class OidcService {
 		return requested;
 	}
 
-	private async collectFgacRelationsForToken(
+	private collectEffectivePermissions(
+		relationsHeld: Iterable<string>,
+		definitions: Record<string, FgacRelationDefinition>,
+	): string[] {
+		const visited = new Set<string>();
+		const out = new Set<string>();
+
+		const visit = (relation: string): void => {
+			if (visited.has(relation)) {
+				return;
+			}
+			visited.add(relation);
+			const def = definitions[relation];
+			if (!def) {
+				return;
+			}
+			for (const permission of def.permissions) {
+				out.add(permission);
+			}
+			for (const parent of def.inherits) {
+				visit(parent);
+			}
+		};
+
+		for (const relation of relationsHeld) {
+			visit(relation);
+		}
+
+		return [...out].sort((a, b) => a.localeCompare(b));
+	}
+
+	private async collectFgacPermissionsForToken(
 		project: ProjectModel,
 		userId: string,
-	): Promise<{ fgac_relations: { resource_type: string; resource_id: string; relation: string }[]; fgac_truncated: boolean }> {
-		const empty = { fgac_relations: [] as { resource_type: string; resource_id: string; relation: string }[], fgac_truncated: false };
+	): Promise<{ fgac_permissions: FgacPermissionEntry[]; fgac_truncated: boolean }> {
+		const empty = { fgac_permissions: [] as FgacPermissionEntry[], fgac_truncated: false };
 		try {
 			if (!this.env.PERMISSION_MANAGER) {
 				return empty;
@@ -543,29 +585,53 @@ export class OidcService {
 			const permEnv = this.env as unknown as PermissionServiceEnv<typeof config>;
 			const management = createPermissionManagementService(permEnv, config);
 			const docTypes = listMergedFgacDocTypes(project.fgacCustomDocTypes);
-			const collected: { resource_type: string; resource_id: string; relation: string }[] = [];
+			const relationDefinitionsByDocType = new Map<string, Record<string, FgacRelationDefinition>>();
+			const relationsByResource = new Map<string, Set<string>>();
+
 			for (const docType of docTypes) {
-				const res = await management.getUserRelations(userId, docType as (typeof config.docTypes)[number]);
+				const typedDocType = docType as (typeof config.docTypes)[number];
+				const relationDefs = await management.listRelations(typedDocType);
+				const normalizedDefs: Record<string, FgacRelationDefinition> = {};
+				for (const [relation, def] of Object.entries(relationDefs.relations)) {
+					normalizedDefs[relation] = {
+						permissions: [...def.permissions],
+						inherits: [...def.inherits],
+					};
+				}
+				relationDefinitionsByDocType.set(docType, normalizedDefs);
+
+				const res = await management.getUserRelations(userId, typedDocType);
 				for (const r of res.relations) {
-					collected.push({
-						resource_type: r.type,
-						resource_id: r.id,
-						relation: r.relation,
-					});
+					const key = `${r.type}\u0000${r.id}`;
+					const held = relationsByResource.get(key) ?? new Set<string>();
+					held.add(r.relation);
+					relationsByResource.set(key, held);
 				}
 			}
+
+			const collected: FgacPermissionEntry[] = [];
+			for (const [key, heldRelations] of relationsByResource.entries()) {
+				const [resource_type, resource_id] = key.split('\u0000');
+				if (!resource_type || !resource_id) {
+					continue;
+				}
+				const defs = relationDefinitionsByDocType.get(resource_type) ?? {};
+				const permissions = this.collectEffectivePermissions(heldRelations, defs);
+				collected.push({ resource_type, resource_id, permissions });
+			}
+
 			collected.sort((a, b) => {
 				const t = a.resource_type.localeCompare(b.resource_type);
 				if (t !== 0) return t;
 				const i = a.resource_id.localeCompare(b.resource_id);
 				if (i !== 0) return i;
-				return a.relation.localeCompare(b.relation);
+				return a.permissions.join(',').localeCompare(b.permissions.join(','));
 			});
-			const truncated = collected.length > FGAC_RELATIONS_MAX_IN_JWT;
-			const fgac_relations = truncated ? collected.slice(0, FGAC_RELATIONS_MAX_IN_JWT) : collected;
-			return { fgac_relations, fgac_truncated: truncated };
+			const truncated = collected.length > FGAC_PERMISSION_ENTRIES_MAX_IN_JWT;
+			const fgac_permissions = truncated ? collected.slice(0, FGAC_PERMISSION_ENTRIES_MAX_IN_JWT) : collected;
+			return { fgac_permissions, fgac_truncated: truncated };
 		} catch (error) {
-			logger.warn('OIDC: skipped fgac_relations in token', {
+			logger.warn('OIDC: skipped fgac_permissions in token', {
 				error: error instanceof Error ? error.message : String(error),
 			});
 			return empty;
@@ -579,7 +645,7 @@ export class OidcService {
 	): Promise<{
 		realm_access: { roles: string[] };
 		resource_access: Record<string, { roles: string[] }>;
-		fgac_relations: { resource_type: string; resource_id: string; relation: string }[];
+		fgac_permissions: FgacPermissionEntry[];
 		fgac_truncated: boolean;
 	}> {
 		const roles: string[] = [];
@@ -598,13 +664,13 @@ export class OidcService {
 		}
 
 		const roleList = [...roles];
-		const { fgac_relations, fgac_truncated } = await this.collectFgacRelationsForToken(project, userId);
+		const { fgac_permissions, fgac_truncated } = await this.collectFgacPermissionsForToken(project, userId);
 		return {
 			realm_access: { roles: roleList },
 			resource_access: {
 				[oauthClientId]: { roles: [...roleList] },
 			},
-			fgac_relations,
+			fgac_permissions,
 			fgac_truncated,
 		};
 	}
@@ -623,7 +689,7 @@ export class OidcService {
 		const accessTtl = this.accessTokenTtlSeconds();
 		const issuer = this.issuer(params.origin, params.project.slug);
 
-		const { realm_access, resource_access, fgac_relations, fgac_truncated } =
+		const { realm_access, resource_access, fgac_permissions, fgac_truncated } =
 			await this.buildKeycloakStyleAccessClaims(params.project, params.user.id, params.client.clientId);
 
 		const accessPayload: Record<string, unknown> = {
@@ -636,7 +702,7 @@ export class OidcService {
 			token_use: 'access',
 			realm_access,
 			resource_access,
-			fgac_relations,
+			fgac_permissions,
 			...(fgac_truncated ? { fgac_truncated: true } : {}),
 		};
 
@@ -988,7 +1054,7 @@ export class OidcService {
 		name?: string | null;
 		realm_access: { roles: string[] };
 		resource_access: Record<string, { roles: string[] }>;
-		fgac_relations: { resource_type: string; resource_id: string; relation: string }[];
+		fgac_permissions: { resource_type: string; resource_id: string; permissions: string[] }[];
 		fgac_truncated: boolean;
 	}> {
 		const project = await this.getProjectBySlug(projectSlug);
@@ -1014,7 +1080,7 @@ export class OidcService {
 			name: user.name,
 			realm_access: claims.realm_access,
 			resource_access: claims.resource_access,
-			fgac_relations: claims.fgac_relations,
+			fgac_permissions: claims.fgac_permissions,
 			fgac_truncated: claims.fgac_truncated,
 		};
 	}
