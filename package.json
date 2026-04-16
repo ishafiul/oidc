@@ -4,7 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "deploy": "pnpm run deploy:all",
+    "deploy:all": "pnpm --filter houserent-api-server run deploy && pnpm --filter @house-rental/oidc-admin run deploy && pnpm --filter @house-rental/oidc-login run deploy"
   },
   "keywords": [],
   "author": "",

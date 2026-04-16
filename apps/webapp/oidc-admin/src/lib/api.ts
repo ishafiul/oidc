@@ -149,6 +149,26 @@ type OrpcClient = {
 		createProject: (input: { body: { name: string; slug?: string; description?: string | null } }) => Promise<ProjectListItem>;
 		listClients: (input: { params: { slug: string } }) => Promise<ProjectClient[]>;
 		createClient: (input: { params: { slug: string }; body: { name: string; clientId: string; isPublic: boolean; redirectUris: string[]; scopeSetIds?: string[] } }) => Promise<ProjectClient>;
+		updateClient: (input: {
+			params: { slug: string; clientId: string };
+			body: { name?: string; isPublic?: boolean; isActive?: boolean };
+		}) => Promise<ProjectClient>;
+		addClientRedirectUri: (input: {
+			params: { slug: string; clientId: string };
+			body: { redirectUri: string };
+		}) => Promise<{ ok: true }>;
+		removeClientRedirectUri: (input: {
+			params: { slug: string; clientId: string };
+			body: { redirectUri: string };
+		}) => Promise<{ ok: true }>;
+		attachClientScopeSet: (input: {
+			params: { slug: string; clientId: string };
+			body: { scopeSetId: string };
+		}) => Promise<{ ok: true }>;
+		detachClientScopeSet: (input: {
+			params: { slug: string; clientId: string };
+			body: { scopeSetId: string };
+		}) => Promise<{ ok: true }>;
 		listScopeSets: (input: { params: { slug: string } }) => Promise<ScopeSetItem[]>;
 		createScopeSet: (input: { params: { slug: string }; body: { name: string; description?: string | null; scopes: string[]; isDefault?: boolean } }) => Promise<ScopeSetItem>;
 		updateScopeSet: (input: {
@@ -450,6 +470,71 @@ export async function createClientInProject(
 	return client.projectRoutes.createClient({
 		params: { slug },
 		body: input,
+	});
+}
+
+export async function updateClientInProject(
+	baseUrl: string,
+	slug: string,
+	clientId: string,
+	body: { name?: string; isPublic?: boolean; isActive?: boolean },
+) {
+	const client = createClient(baseUrl);
+	return client.projectRoutes.updateClient({
+		params: { slug, clientId },
+		body,
+	});
+}
+
+export async function addClientRedirectUri(
+	baseUrl: string,
+	slug: string,
+	clientId: string,
+	redirectUri: string,
+) {
+	const client = createClient(baseUrl);
+	return client.projectRoutes.addClientRedirectUri({
+		params: { slug, clientId },
+		body: { redirectUri },
+	});
+}
+
+export async function removeClientRedirectUri(
+	baseUrl: string,
+	slug: string,
+	clientId: string,
+	redirectUri: string,
+) {
+	const client = createClient(baseUrl);
+	return client.projectRoutes.removeClientRedirectUri({
+		params: { slug, clientId },
+		body: { redirectUri },
+	});
+}
+
+export async function attachClientScopeSet(
+	baseUrl: string,
+	slug: string,
+	clientId: string,
+	scopeSetId: string,
+) {
+	const client = createClient(baseUrl);
+	return client.projectRoutes.attachClientScopeSet({
+		params: { slug, clientId },
+		body: { scopeSetId },
+	});
+}
+
+export async function detachClientScopeSet(
+	baseUrl: string,
+	slug: string,
+	clientId: string,
+	scopeSetId: string,
+) {
+	const client = createClient(baseUrl);
+	return client.projectRoutes.detachClientScopeSet({
+		params: { slug, clientId },
+		body: { scopeSetId },
 	});
 }
 
