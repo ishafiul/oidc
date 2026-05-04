@@ -198,12 +198,12 @@ export function LoginPage() {
                 <div className="space-y-2">
                   <TurnstileWidget
                     action="admin-otp-request"
-                    className="border border-border/70 bg-background/50"
                     onError={handleTurnstileError}
                     onExpire={handleTurnstileExpire}
                     onToken={handleTurnstileToken}
                     resetKey={turnstileResetKey}
                     siteKey={turnstileSiteKey}
+                    theme="light"
                   />
                   {turnstileError ? (
                     <p className="text-center text-xs text-destructive" role="alert">

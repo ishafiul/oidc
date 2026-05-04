@@ -344,12 +344,12 @@ export function LoginApp() {
                 <div className="space-y-2">
                   <TurnstileWidget
                     action="user-otp-request"
-                    className="border border-border/60 bg-background/30"
                     onError={handleTurnstileError}
                     onExpire={handleTurnstileExpire}
                     onToken={handleTurnstileToken}
                     resetKey={turnstileResetKey}
                     siteKey={turnstileSiteKey}
+                    theme="dark"
                   />
                   {turnstileError ? (
                     <p className="text-center text-xs text-red-200" role="alert">

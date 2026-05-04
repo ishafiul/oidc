@@ -9,6 +9,8 @@ declare global {
         options: {
           sitekey: string;
           action?: string;
+          size?: 'normal' | 'compact' | 'flexible';
+          theme?: 'auto' | 'dark' | 'light';
           callback: (token: string) => void;
           'expired-callback': () => void;
           'error-callback': () => void;
@@ -55,6 +57,7 @@ export function TurnstileWidget(props: {
   readonly onToken: (token: string) => void;
   readonly resetKey: number;
   readonly siteKey: string;
+  readonly theme?: 'auto' | 'dark' | 'light';
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -68,6 +71,8 @@ export function TurnstileWidget(props: {
         widgetId = window.turnstile.render(containerRef.current, {
           sitekey: props.siteKey,
           action: props.action,
+          size: 'flexible',
+          theme: props.theme ?? 'auto',
           callback: props.onToken,
           'expired-callback': props.onExpire,
           'error-callback': props.onError,
@@ -83,12 +88,12 @@ export function TurnstileWidget(props: {
         window.turnstile.remove(widgetId);
       }
     };
-  }, [props.action, props.onError, props.onExpire, props.onToken, props.resetKey, props.siteKey]);
+  }, [props.action, props.onError, props.onExpire, props.onToken, props.resetKey, props.siteKey, props.theme]);
 
   return (
     <div
       ref={containerRef}
-      className={cn('flex min-h-[65px] w-full items-center justify-center overflow-hidden rounded-xl', props.className)}
+      className={cn('mx-auto flex min-h-[65px] w-full max-w-[300px] items-center justify-center overflow-hidden', props.className)}
     />
   );
 }
