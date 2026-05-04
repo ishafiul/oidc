@@ -54,12 +54,12 @@ export function useProjectsQuery() {
 	});
 }
 
-export function useAdminUsersQuery() {
+export function useAdminUsersQuery(projectSlug?: string | null) {
 	const apiBaseUrl = useAdminStore((state) => state.apiBaseUrl);
 
 	return useQuery({
-		queryKey: ['admin', 'users', apiBaseUrl],
-		queryFn: () => listAdminUsers(apiBaseUrl),
+		queryKey: ['admin', 'users', projectSlug ?? 'available', apiBaseUrl],
+		queryFn: () => listAdminUsers(apiBaseUrl, projectSlug),
 		enabled: Boolean(apiBaseUrl),
 		staleTime: 15_000,
 	});

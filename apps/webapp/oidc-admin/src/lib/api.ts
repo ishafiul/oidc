@@ -7,6 +7,7 @@ type ProjectListItem = {
 	readonly slug: string;
 	readonly name: string;
 	readonly description: string | null;
+	readonly role?: string;
 };
 
 type ProjectClient = {
@@ -119,6 +120,33 @@ export type AdminUserRow = {
 	readonly createdAt: string;
 	readonly updatedAt: string;
 	readonly sessions: AdminUserSession[];
+	readonly memberships: AdminUserProjectMembership[];
+	readonly projectSessions: AdminUserProjectTokenSession[];
+};
+
+export type AdminUserProjectMembership = {
+	readonly id: string;
+	readonly projectId: string;
+	readonly projectSlug: string;
+	readonly projectName: string;
+	readonly role: string;
+	readonly createdAt: string;
+	readonly updatedAt: string;
+};
+
+export type AdminUserProjectTokenSession = {
+	readonly id: string;
+	readonly projectId: string;
+	readonly projectSlug: string;
+	readonly projectName: string;
+	readonly clientId: string;
+	readonly clientName: string | null;
+	readonly scope: string;
+	readonly expiresAt: string;
+	readonly revokedAt: string | null;
+	readonly createdAt: string;
+	readonly updatedAt: string;
+	readonly isActive: boolean;
 };
 
 export type AdminDeviceInfo = {
@@ -158,7 +186,7 @@ export type AdminUserSession = {
 
 type OrpcClient = {
 	adminRoutes: {
-		listUsers: () => Promise<AdminUserRow[]>;
+		listUsers: (input: { query?: { projectSlug?: string } }) => Promise<AdminUserRow[]>;
 		updateUser: (input: {
 			params: { userId: string };
 			body: {
@@ -168,6 +196,10 @@ type OrpcClient = {
 				bannedUntil?: string | null;
 			};
 		}) => Promise<AdminUserRow>;
+		revokeUserSession: (input: {
+			params: { userId: string; sessionId: string };
+			query?: { projectSlug?: string };
+		}) => Promise<{ ok: true }>;
 	};
 	authRoutes: {
 		requestAdminOtp: (input: { body: { email: string; turnstileToken?: string } }) => Promise<{ success: boolean; message: string }>;
@@ -448,9 +480,11 @@ export async function logoutAdmin(baseUrl: string) {
 	}
 }
 
-export async function listAdminUsers(baseUrl: string) {
+export async function listAdminUsers(baseUrl: string, projectSlug?: string | null) {
 	const client = createClient(baseUrl);
-	return client.adminRoutes.listUsers();
+	return client.adminRoutes.listUsers({
+		query: projectSlug ? { projectSlug } : {},
+	});
 }
 
 export async function updateAdminUser(
@@ -467,6 +501,19 @@ export async function updateAdminUser(
 	return client.adminRoutes.updateUser({
 		params: { userId },
 		body,
+	});
+}
+
+export async function revokeAdminUserSession(
+	baseUrl: string,
+	userId: string,
+	sessionId: string,
+	projectSlug?: string | null,
+) {
+	const client = createClient(baseUrl);
+	return client.adminRoutes.revokeUserSession({
+		params: { userId, sessionId },
+		query: projectSlug ? { projectSlug } : {},
 	});
 }
 

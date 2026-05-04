@@ -7,21 +7,26 @@ import {
 	CheckCircle2,
 	Clock3,
 	Fingerprint,
+	FolderKanban,
+	KeyRound,
 	Laptop,
 	PenLine,
 	Search,
 	ShieldCheck,
 	Smartphone,
+	Trash2,
 	UserCircle,
 	Wifi,
 } from 'lucide-react';
 import {
+	revokeAdminUserSession,
 	updateAdminUser,
 	type AdminDeviceInfo,
+	type AdminUserProjectTokenSession,
 	type AdminUserRow,
 	type AdminUserSession,
 } from '@/lib/api';
-import { useAdminUsersQuery } from '@/hooks/use-oidc-queries';
+import { useAdminUsersQuery, useProjectsQuery } from '@/hooks/use-oidc-queries';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -131,7 +136,19 @@ function DeviceDetails({ device }: { readonly device: AdminDeviceInfo | null }) 
 	);
 }
 
-function SessionRow({ session }: { readonly session: AdminUserSession }) {
+function SessionRow({
+	session,
+	memberships,
+	canRevoke,
+	isRevoking,
+	onRevoke,
+}: {
+	readonly session: AdminUserSession;
+	readonly memberships: AdminUserRow['memberships'];
+	readonly canRevoke: boolean;
+	readonly isRevoking: boolean;
+	readonly onRevoke: (session: AdminUserSession) => void;
+}) {
 	const DeviceIcon = session.device?.deviceType?.toLowerCase().includes('phone') ? Smartphone : Laptop;
 
 	return (
@@ -147,15 +164,40 @@ function SessionRow({ session }: { readonly session: AdminUserSession }) {
 							<Badge variant="outline">Expired</Badge>
 						)}
 						{session.isTrusted ? <Badge variant="secondary">Trusted</Badge> : null}
+						<Badge variant="outline" className="normal-case tracking-normal">
+							Global account session
+						</Badge>
 					</div>
 					<p className="mt-1 break-all font-mono text-xs text-muted-foreground">
 						{shortId(session.id)} / {shortId(session.deviceId)}
 					</p>
+					<div className="mt-2 flex flex-wrap gap-1">
+						{memberships.slice(0, 4).map((membership) => (
+							<Badge key={membership.id} variant="outline" className="normal-case tracking-normal">
+								usable for {membership.projectSlug}
+							</Badge>
+						))}
+						{memberships.length > 4 ? (
+							<Badge variant="outline" className="normal-case tracking-normal">
+								+{memberships.length - 4} projects
+							</Badge>
+						) : null}
+					</div>
 				</div>
 				<div className="grid min-w-[220px] gap-1 text-xs text-muted-foreground">
 					<span>Last refresh: {formatDt(session.lastRefresh)}</span>
 					<span>Active until: {formatDt(session.activeUntil)}</span>
 					<span>Trusted at: {formatDt(session.trustedAt)}</span>
+					<Button
+						size="sm"
+						variant="outline"
+						className="mt-2 w-fit border-destructive/60 text-destructive hover:bg-destructive/10"
+						disabled={!canRevoke || isRevoking}
+						onClick={() => onRevoke(session)}
+					>
+						<Trash2 className="mr-2 h-3.5 w-3.5" />
+						Revoke
+					</Button>
 				</div>
 			</div>
 			<div className="mt-4">
@@ -165,12 +207,53 @@ function SessionRow({ session }: { readonly session: AdminUserSession }) {
 	);
 }
 
+function ProjectTokenSessionRow({ session }: { readonly session: AdminUserProjectTokenSession }) {
+	return (
+		<div className="rounded-lg border border-border/70 bg-card/70 p-4">
+			<div className="flex flex-wrap items-start justify-between gap-3">
+				<div className="min-w-0">
+					<div className="flex flex-wrap items-center gap-2">
+						<KeyRound className="h-4 w-4 text-primary" aria-hidden="true" />
+						<p className="font-semibold text-foreground">{session.projectName}</p>
+						{session.isActive ? (
+							<Badge className="border-primary/30 bg-primary/10 text-primary">Active token</Badge>
+						) : (
+							<Badge variant="outline">Inactive token</Badge>
+						)}
+						<Badge variant="secondary">{session.clientName ?? session.clientId}</Badge>
+					</div>
+					<p className="mt-1 break-all font-mono text-xs text-muted-foreground">
+						{session.projectSlug} / client:{session.clientId} / token:{shortId(session.id)}
+					</p>
+					<div className="mt-3 flex flex-wrap gap-1">
+						{session.scope.split(/\s+/).filter(Boolean).map((scope) => (
+							<Badge key={scope} variant="outline" className="normal-case tracking-normal">
+								{scope}
+							</Badge>
+						))}
+					</div>
+				</div>
+				<div className="grid min-w-[220px] gap-1 text-xs text-muted-foreground">
+					<span>Issued: {formatDt(session.createdAt)}</span>
+					<span>Expires: {formatDt(session.expiresAt)}</span>
+					<span>Revoked: {formatDt(session.revokedAt)}</span>
+				</div>
+			</div>
+		</div>
+	);
+}
+
 export function UsersPage() {
 	const queryClient = useQueryClient();
 	const apiBaseUrl = useAdminStore((state) => state.apiBaseUrl);
 	const sessionUser = useAdminStore((state) => state.sessionUser);
+	const storedProjectSlug = useAdminStore((state) => state.selectedProjectSlug);
+	const setSelectedProjectSlug = useAdminStore((state) => state.setSelectedProjectSlug);
 
-	const usersQuery = useAdminUsersQuery();
+	const [projectFilterSlug, setProjectFilterSlug] = useState<string>(() => storedProjectSlug ?? 'all');
+	const effectiveProjectSlug = projectFilterSlug === 'all' ? null : projectFilterSlug;
+	const projectsQuery = useProjectsQuery();
+	const usersQuery = useAdminUsersQuery(effectiveProjectSlug);
 	const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 	const [search, setSearch] = useState('');
 	const [editingId, setEditingId] = useState<string | null>(null);
@@ -185,6 +268,15 @@ export function UsersPage() {
 		if (!data) return [];
 		return [...data].sort((a, b) => a.email.localeCompare(b.email));
 	}, [usersQuery.data]);
+
+	useEffect(() => {
+		if (!projectsQuery.data || projectFilterSlug === 'all') {
+			return;
+		}
+		if (!projectsQuery.data.some((project) => project.slug === projectFilterSlug)) {
+			setProjectFilterSlug('all');
+		}
+	}, [projectFilterSlug, projectsQuery.data]);
 
 	useEffect(() => {
 		if (sortedUsers.length === 0) {
@@ -214,6 +306,26 @@ export function UsersPage() {
 				])
 				.filter(Boolean)
 				.join(' ');
+			const projectSessionText = user.projectSessions
+				.flatMap((session) => [
+					session.id,
+					session.projectSlug,
+					session.projectName,
+					session.clientId,
+					session.clientName,
+					session.scope,
+				])
+				.filter(Boolean)
+				.join(' ');
+			const membershipText = user.memberships
+				.flatMap((membership) => [
+					membership.projectId,
+					membership.projectSlug,
+					membership.projectName,
+					membership.role,
+				])
+				.filter(Boolean)
+				.join(' ');
 			return [
 				user.id,
 				user.email,
@@ -221,7 +333,9 @@ export function UsersPage() {
 				user.phoneNumber,
 				user.avatarUrl,
 				user.banReason,
+				membershipText,
 				sessionText,
+				projectSessionText,
 			]
 				.filter(Boolean)
 				.join(' ')
@@ -231,8 +345,23 @@ export function UsersPage() {
 	}, [search, sortedUsers]);
 
 	const selectedUser = sortedUsers.find((user) => user.id === selectedUserId) ?? filteredUsers[0] ?? null;
+	const manageableProjectSlugs = useMemo(() => {
+		return new Set(
+			(projectsQuery.data ?? [])
+				.filter((project) => project.role === undefined || project.role === 'admin' || project.role === 'owner')
+				.map((project) => project.slug),
+		);
+	}, [projectsQuery.data]);
+	const canRevokeSelectedUserSessions =
+		selectedUser !== null &&
+		selectedUser.id !== sessionUser?.id &&
+		selectedUser.memberships.some((membership) => manageableProjectSlugs.has(membership.projectSlug));
 	const activeSessions = sortedUsers.reduce(
 		(total, user) => total + user.sessions.filter((session) => session.isActive).length,
+		0,
+	);
+	const activeProjectSessions = sortedUsers.reduce(
+		(total, user) => total + user.projectSessions.filter((session) => session.isActive).length,
 		0,
 	);
 	const trustedSessions = sortedUsers.reduce(
@@ -243,6 +372,9 @@ export function UsersPage() {
 		(total, user) => total + user.sessions.filter((session) => session.device !== null).length,
 		0,
 	);
+	const visibleProjectCount = new Set(
+		sortedUsers.flatMap((user) => user.memberships.map((membership) => membership.projectId)),
+	).size;
 	const bannedUsers = sortedUsers.filter((user) => user.isBanned).length;
 
 	const invalidateUsers = async () => {
@@ -283,9 +415,23 @@ export function UsersPage() {
 		},
 	});
 
+	const sessionRevokeMutation = useMutation({
+		mutationFn: async ({ userId, sessionId }: { userId: string; sessionId: string }) =>
+			revokeAdminUserSession(apiBaseUrl, userId, sessionId, effectiveProjectSlug),
+		onSuccess: async () => {
+			await invalidateUsers();
+		},
+	});
+
 	const listErr =
 		usersQuery.error instanceof Error ? usersQuery.error.message : usersQuery.isError ? 'Failed to load users' : null;
 	const banTarget = sortedUsers.find((user) => user.id === banUserId) ?? null;
+	const sessionRevokeErr =
+		sessionRevokeMutation.error instanceof Error
+			? sessionRevokeMutation.error.message
+			: sessionRevokeMutation.isError
+				? 'Session revoke failed'
+				: null;
 
 	return (
 		<div className="grid gap-4">
@@ -296,20 +442,46 @@ export function UsersPage() {
 						<div>
 							<CardTitle className="text-2xl">User intelligence</CardTitle>
 							<CardDescription className="mt-2 max-w-3xl">
-								Identity records, ban state, active sessions, trusted devices, and every device/network
-								field stored by the OIDC backend.
+								Project-scoped identity records, ban state, active sessions, trusted devices, and
+								every device/network field stored by the OIDC backend.
 							</CardDescription>
 						</div>
-						<div className="rounded-lg border border-primary/25 bg-primary/10 px-3 py-2 font-mono text-xs text-primary">
-							{sessionUser?.email ?? 'System admin'}
+						<div className="flex flex-wrap items-center justify-end gap-2">
+							<div className="rounded-lg border border-primary/25 bg-primary/10 px-3 py-2 font-mono text-xs text-primary">
+								{sessionUser?.email ?? 'System admin'}
+							</div>
+							<label className="sr-only" htmlFor="user-project-filter">
+								Project filter
+							</label>
+							<select
+								id="user-project-filter"
+								className="h-10 rounded-lg border border-border bg-card px-3 text-sm text-foreground shadow-sm"
+								value={projectFilterSlug}
+								onChange={(event) => {
+									const next = event.target.value;
+									setProjectFilterSlug(next);
+									if (next !== 'all') {
+										setSelectedProjectSlug(next);
+									}
+								}}
+							>
+								<option value="all">All available projects</option>
+								{projectsQuery.data?.map((project) => (
+									<option key={project.id} value={project.slug}>
+										{project.name}
+									</option>
+								))}
+							</select>
 						</div>
 					</div>
 				</CardHeader>
-				<CardContent className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-5">
+				<CardContent className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-6">
 					<Metric icon={UserCircle} label="Users" value={sortedUsers.length} />
-					<Metric icon={Activity} label="Active sessions" value={activeSessions} tone="good" />
+					<Metric icon={Activity} label="Account sessions" value={activeSessions} tone="good" />
 					<Metric icon={ShieldCheck} label="Trusted sessions" value={trustedSessions} />
+					<Metric icon={KeyRound} label="Project tokens" value={activeProjectSessions} />
 					<Metric icon={Fingerprint} label="Known devices" value={knownDevices} />
+					<Metric icon={FolderKanban} label="Projects" value={visibleProjectCount} />
 					<Metric icon={Ban} label="Banned" value={bannedUsers} tone="danger" />
 				</CardContent>
 			</Card>
@@ -357,12 +529,27 @@ export function UsersPage() {
 											</div>
 											<UserStatusBadge user={user} />
 										</div>
+										<div className="mt-3 flex flex-wrap gap-1">
+											{user.memberships.slice(0, 3).map((membership) => (
+												<Badge key={membership.id} variant="outline" className="normal-case tracking-normal">
+													{membership.projectSlug}:{membership.role}
+												</Badge>
+											))}
+											{user.memberships.length > 3 ? (
+												<Badge variant="outline" className="normal-case tracking-normal">
+													+{user.memberships.length - 3}
+												</Badge>
+											) : null}
+										</div>
 										<div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
 											<span className="inline-flex items-center gap-1">
 												<Clock3 className="h-3 w-3" /> {activeCount} active
 											</span>
 											<span className="inline-flex items-center gap-1">
 												<Laptop className="h-3 w-3" /> {user.sessions.length} sessions
+											</span>
+											<span className="inline-flex items-center gap-1">
+												<KeyRound className="h-3 w-3" /> {user.projectSessions.length} tokens
 											</span>
 										</div>
 									</button>
@@ -470,6 +657,29 @@ export function UsersPage() {
 									<InfoRow label="Ban reason" value={selectedUser.banReason} />
 								</div>
 
+								<div className="rounded-lg border border-border/70 bg-muted/20 p-4">
+									<div className="flex flex-wrap items-center justify-between gap-2">
+										<h3 className="font-display text-xl">Project access</h3>
+										<Badge variant="outline">{selectedUser.memberships.length} memberships</Badge>
+									</div>
+									<div className="mt-3 grid gap-2 md:grid-cols-2">
+										{selectedUser.memberships.map((membership) => (
+											<div key={membership.id} className="rounded-lg border border-border/70 bg-card/70 p-3">
+												<div className="flex flex-wrap items-center justify-between gap-2">
+													<p className="font-semibold text-foreground">{membership.projectName}</p>
+													<Badge variant="secondary">{membership.role}</Badge>
+												</div>
+												<p className="mt-1 font-mono text-xs text-muted-foreground">
+													{membership.projectSlug} / {shortId(membership.projectId)}
+												</p>
+												<p className="mt-2 text-xs text-muted-foreground">
+													Joined {formatDt(membership.createdAt)}
+												</p>
+											</div>
+										))}
+									</div>
+								</div>
+
 								<div className="grid gap-3 sm:grid-cols-3">
 									<div className="rounded-lg border border-border/70 bg-muted/25 p-4">
 										<p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
@@ -503,9 +713,10 @@ export function UsersPage() {
 								<div className="grid gap-3">
 									<div className="flex flex-wrap items-center justify-between gap-2">
 										<div>
-											<h3 className="font-display text-xl">Sessions and devices</h3>
+											<h3 className="font-display text-xl">Global account/device sessions</h3>
 											<p className="text-sm text-muted-foreground">
-												Active means the session refreshed within the seven-day refresh window.
+												These login sessions are not tied to a single project. Revoking one signs
+												the account out for every project using that device/session.
 											</p>
 										</div>
 										<Badge variant="outline">{selectedUser.sessions.length} total</Badge>
@@ -517,11 +728,55 @@ export function UsersPage() {
 									) : (
 										<div className="grid gap-3">
 											{selectedUser.sessions.map((session) => (
-												<SessionRow key={session.id} session={session} />
+												<SessionRow
+													key={session.id}
+													session={session}
+													memberships={selectedUser.memberships}
+													canRevoke={canRevokeSelectedUserSessions}
+													isRevoking={sessionRevokeMutation.isPending}
+													onRevoke={(targetSession) => {
+														const confirmed = window.confirm(
+															`Revoke session ${shortId(targetSession.id)} for ${selectedUser.email}?`,
+														);
+														if (!confirmed) return;
+														sessionRevokeMutation.mutate({
+															userId: selectedUser.id,
+															sessionId: targetSession.id,
+														});
+													}}
+												/>
 											))}
 										</div>
 									)}
 								</div>
+								<div className="grid gap-3">
+									<div className="flex flex-wrap items-center justify-between gap-2">
+										<div>
+											<h3 className="font-display text-xl">Project token sessions</h3>
+											<p className="text-sm text-muted-foreground">
+												These are OIDC refresh tokens, so they show the project and client they
+												were issued for.
+											</p>
+										</div>
+										<Badge variant="outline">{selectedUser.projectSessions.length} total</Badge>
+									</div>
+									{selectedUser.projectSessions.length === 0 ? (
+										<div className="rounded-lg border border-dashed border-border/80 bg-muted/30 p-5 text-sm text-muted-foreground">
+											No project token sessions are stored for this user in the current scope.
+										</div>
+									) : (
+										<div className="grid gap-3">
+											{selectedUser.projectSessions.map((session) => (
+												<ProjectTokenSessionRow key={session.id} session={session} />
+											))}
+										</div>
+									)}
+								</div>
+								{sessionRevokeErr ? (
+									<p className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+										{sessionRevokeErr}
+									</p>
+								) : null}
 							</div>
 						) : (
 							<div className="flex min-h-[360px] items-center justify-center rounded-lg border border-dashed border-border/80 bg-muted/20 p-8 text-center">
