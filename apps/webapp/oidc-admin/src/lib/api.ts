@@ -111,12 +111,49 @@ export type AdminUserRow = {
 	readonly email: string;
 	readonly name: string | null;
 	readonly phoneNumber: string | null;
+	readonly avatarUrl: string | null;
 	readonly isBanned: boolean;
 	readonly bannedAt: string | null;
 	readonly bannedUntil: string | null;
 	readonly banReason: string | null;
 	readonly createdAt: string;
 	readonly updatedAt: string;
+	readonly sessions: AdminUserSession[];
+};
+
+export type AdminDeviceInfo = {
+	readonly id: string;
+	readonly fingerprint: string | null;
+	readonly deviceType: string | null;
+	readonly osName: string | null;
+	readonly osVersion: string | null;
+	readonly deviceModel: string | null;
+	readonly isPhysicalDevice: string | null;
+	readonly appVersion: string | null;
+	readonly ipAddress: string | null;
+	readonly city: string | null;
+	readonly countryCode: string | null;
+	readonly isp: string | null;
+	readonly colo: string | null;
+	readonly longitude: string | null;
+	readonly latitude: string | null;
+	readonly timezone: string | null;
+	readonly hasFcmToken: boolean;
+	readonly fcmToken: string | null;
+	readonly createdAt: string;
+	readonly updatedAt: string;
+};
+
+export type AdminUserSession = {
+	readonly id: string;
+	readonly userId: string;
+	readonly deviceId: string;
+	readonly lastRefresh: string | null;
+	readonly isTrusted: boolean;
+	readonly trustedAt: string | null;
+	readonly activeUntil: string | null;
+	readonly isActive: boolean;
+	readonly device: AdminDeviceInfo | null;
 };
 
 type OrpcClient = {
