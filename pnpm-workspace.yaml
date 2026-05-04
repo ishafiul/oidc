@@ -5,23 +5,23 @@ packages:
   - packages/ts
 
 catalog:
-  '@dotenvx/dotenvx': 1.49.0
-  '@orpc/client': 1.7.11
-  '@orpc/server': 1.7.11
-  '@orpc/openapi': 1.7.11
-  '@orpc/zod': 1.7.11
-  '@orpc/contract': ^1.13.0
   '@cloudflare/vitest-pool-workers': ^0.11.1
   '@cloudflare/workers-types': ^4.20251223.0
+  '@dotenvx/dotenvx': 1.49.0
+  '@orpc/client': 1.7.11
+  '@orpc/contract': ^1.13.0
+  '@orpc/openapi': 1.7.11
+  '@orpc/server': 1.7.11
+  '@orpc/zod': 1.7.11
   dotenv: ^17.2.3
-  uuid: ^11.0.3
-  hono: ^4.10.6
   drizzle-kit: 0.31.4
   drizzle-orm: 0.44.4
   drizzle-zod: 0.8.3
+  hono: ^4.10.6
   prettier: 3.6.2
   tsx: 4.20.3
   typescript: ^5
+  uuid: ^11.0.3
   vite: 7.1.4
   vitest: ^2.1.8
   wrangler: 4.4.0

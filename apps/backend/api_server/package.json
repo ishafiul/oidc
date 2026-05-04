@@ -14,26 +14,27 @@
     "migration:push:production": "dotenvx run -f .env.production -- drizzle-kit push"
   },
   "dependencies": {
-    "@orpc/contract": "catalog:",
     "@hono/zod-openapi": "1.2.0",
     "@neondatabase/serverless": "^1.0.2",
     "@orpc/client": "catalog:",
+    "@orpc/contract": "catalog:",
     "@orpc/openapi": "catalog:",
     "@orpc/server": "catalog:",
     "@orpc/zod": "catalog:",
     "@scalar/hono-api-reference": "^0.9.24",
+    "common-pack": "workspace:",
     "dotenv": "catalog:",
     "drizzle-orm": "catalog:",
     "drizzle-zod": "catalog:",
     "hono": "catalog:",
+    "permission-manager-worker": "workspace:",
     "resend": "^4.0.2",
     "uuid": "catalog:",
-    "zod": "catalog:",
-    "common-pack": "workspace:",
-    "permission-manager-worker": "workspace:"
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",
+    "@dotenvx/dotenvx": "catalog:",
     "drizzle-kit": "catalog:",
     "tsx": "catalog:",
     "typescript": "catalog:",
