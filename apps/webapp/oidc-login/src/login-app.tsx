@@ -20,7 +20,7 @@ import { ArrowLeft, Check, KeyRound, Loader2, ShieldCheck } from 'lucide-react';
 import { useCallback, useMemo, useState, type FormEvent } from 'react';
 
 const DEVICE_KEY = 'house_rental_oidc_login_device_id';
-const OTP_LEN = 5;
+const OTP_LEN = 6;
 
 function readReturnUrlFromLocation(): string | null {
   if (typeof window === 'undefined') return null;
@@ -285,7 +285,7 @@ export function LoginApp() {
                     maxLength={OTP_LEN}
                     name="otp"
                     pattern="\d*"
-                    placeholder="•••••"
+                    placeholder="••••••"
                     value={otp}
                     disabled={busy}
                     onChange={(e) => onOtpInput(e.target.value)}

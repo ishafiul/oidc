@@ -8,7 +8,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { ArrowLeft, Check, Loader2, Mail } from 'lucide-react';
 import { useCallback, useState, type FormEvent } from 'react';
 
-const OTP_LENGTH = 5;
+const OTP_LENGTH = 6;
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -151,7 +151,7 @@ export function LoginPage() {
                     maxLength={OTP_LENGTH}
                     name="otp"
                     pattern="\d*"
-                    placeholder="•••••"
+                    placeholder="••••••"
                     value={otp}
                     disabled={busy}
                     onChange={(event) => onOtpChange(event.target.value)}
