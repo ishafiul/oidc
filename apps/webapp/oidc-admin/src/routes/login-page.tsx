@@ -1,6 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { TurnstileWidget } from '@/components/turnstile-widget';
 import { requestAdminOtp, setAdminAccessToken, setAdminCsrfToken, verifyAdminOtp } from '@/lib/api';
 import { useAdminStore } from '@/stores/admin-store';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -14,6 +15,8 @@ export function LoginPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const apiBaseUrl = useAdminStore((state) => state.apiBaseUrl);
+  const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY?.trim() ?? '';
+  const turnstileEnabled = Boolean(turnstileSiteKey);
   const setSessionUser = useAdminStore((state) => state.setSessionUser);
   const setSessionLoaded = useAdminStore((state) => state.setSessionLoaded);
 
@@ -21,15 +24,41 @@ export function LoginPage() {
   const [otp, setOtp] = useState('');
   const [otpRequested, setOtpRequested] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [turnstileError, setTurnstileError] = useState<string | null>(null);
+  const [turnstileResetKey, setTurnstileResetKey] = useState(0);
+  const [turnstileToken, setTurnstileToken] = useState('');
+
+  const resetTurnstile = useCallback(() => {
+    setTurnstileToken('');
+    if (turnstileEnabled) setTurnstileResetKey((value) => value + 1);
+  }, [turnstileEnabled]);
+
+  const handleTurnstileToken = useCallback((token: string) => {
+    setTurnstileToken(token);
+    setTurnstileError(null);
+  }, []);
+
+  const handleTurnstileExpire = useCallback(() => {
+    setTurnstileToken('');
+    setTurnstileError('Security check expired. Please retry.');
+  }, []);
+
+  const handleTurnstileError = useCallback(() => {
+    setTurnstileToken('');
+    setTurnstileError('Security check failed to load. Please retry.');
+  }, []);
 
   const requestOtpMutation = useMutation({
-    mutationFn: async () => requestAdminOtp(apiBaseUrl, email),
+    mutationFn: async () => requestAdminOtp(apiBaseUrl, email, turnstileToken || undefined),
     onSuccess: () => {
       setOtpRequested(true);
       setErrorMessage(null);
     },
     onError: (error) => {
       setErrorMessage(error instanceof Error ? error.message : 'Failed to request OTP');
+    },
+    onSettled: () => {
+      resetTurnstile();
     },
   });
 
@@ -64,15 +93,17 @@ export function LoginPage() {
     (event: FormEvent) => {
       event.preventDefault();
       if (!otpRequested) {
+        if (turnstileEnabled && !turnstileToken) return;
         if (email.trim()) requestOtpMutation.mutate();
         return;
       }
       if (otp.length === OTP_LENGTH) verifyOtpMutation.mutate();
     },
-    [email, otp.length, otpRequested, requestOtpMutation, verifyOtpMutation],
+    [email, otp.length, otpRequested, requestOtpMutation, turnstileEnabled, turnstileToken, verifyOtpMutation],
   );
 
   const busy = requestOtpMutation.isPending || verifyOtpMutation.isPending;
+  const requestDisabled = busy || !email.trim() || (turnstileEnabled && !turnstileToken);
 
   return (
     <div className="relative flex min-h-[100dvh] flex-col justify-center px-4 py-8 pt-[max(1.25rem,env(safe-area-inset-top))] pb-[max(1.25rem,env(safe-area-inset-bottom))]">
@@ -163,10 +194,29 @@ export function LoginPage() {
                 </div>
               )}
 
+              {turnstileEnabled ? (
+                <div className="space-y-2">
+                  <TurnstileWidget
+                    action="admin-otp-request"
+                    className="border border-border/70 bg-background/50"
+                    onError={handleTurnstileError}
+                    onExpire={handleTurnstileExpire}
+                    onToken={handleTurnstileToken}
+                    resetKey={turnstileResetKey}
+                    siteKey={turnstileSiteKey}
+                  />
+                  {turnstileError ? (
+                    <p className="text-center text-xs text-destructive" role="alert">
+                      {turnstileError}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
               {!otpRequested ? (
                 <Button
                   className="h-12 w-full text-base font-semibold shadow-lg shadow-primary/20 sm:text-sm"
-                  disabled={busy || !email.trim()}
+                  disabled={requestDisabled}
                   size="lg"
                   type="submit"
                 >
@@ -198,7 +248,7 @@ export function LoginPage() {
                   </Button>
                   <Button
                     className="h-11 w-full"
-                    disabled={busy}
+                    disabled={requestDisabled}
                     type="button"
                     variant="outline"
                     onClick={() => requestOtpMutation.mutate()}

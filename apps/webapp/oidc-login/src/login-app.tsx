@@ -1,6 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { TurnstileWidget } from '@/components/turnstile-widget';
 import {
   createDeviceUuid,
   createOidcAuthorizeSession,
@@ -37,6 +38,8 @@ function projectLabelFromAuthorizeUrl(url: URL): string | null {
 export function LoginApp() {
   const apiBase = normalizeApiBase(import.meta.env.VITE_API_BASE_URL ?? '');
   const apiOrigin = getApiOriginFromEnv(import.meta.env.VITE_API_BASE_URL ?? '');
+  const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY?.trim() ?? '';
+  const turnstileEnabled = Boolean(turnstileSiteKey);
 
   const returnUrlRaw = useMemo(() => readReturnUrlFromLocation(), []);
   const returnParsed = useMemo(() => {
@@ -64,7 +67,30 @@ export function LoginApp() {
   const [otpSent, setOtpSent] = useState(false);
   const [trustDevice, setTrustDevice] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [turnstileError, setTurnstileError] = useState<string | null>(null);
+  const [turnstileResetKey, setTurnstileResetKey] = useState(0);
+  const [turnstileToken, setTurnstileToken] = useState('');
   const [signedInNoRedirect, setSignedInNoRedirect] = useState(false);
+
+  const resetTurnstile = useCallback(() => {
+    setTurnstileToken('');
+    if (turnstileEnabled) setTurnstileResetKey((value) => value + 1);
+  }, [turnstileEnabled]);
+
+  const handleTurnstileToken = useCallback((token: string) => {
+    setTurnstileToken(token);
+    setTurnstileError(null);
+  }, []);
+
+  const handleTurnstileExpire = useCallback(() => {
+    setTurnstileToken('');
+    setTurnstileError('Security check expired. Please retry.');
+  }, []);
+
+  const handleTurnstileError = useCallback(() => {
+    setTurnstileToken('');
+    setTurnstileError('Security check failed to load. Please retry.');
+  }, []);
 
   const redirectAfterOidcAuth = useCallback(
     async (accessToken: string, emailForHint: string) => {
@@ -78,7 +104,7 @@ export function LoginApp() {
   );
 
   const requestMutation = useMutation({
-    mutationFn: async () => requestOtp(apiBase, email.trim(), deviceQuery.data ?? ''),
+    mutationFn: async () => requestOtp(apiBase, email.trim(), deviceQuery.data ?? '', turnstileToken || undefined),
     onSuccess: async (result: RequestOtpResult) => {
       setErrorMessage(null);
       if (result.accessToken) {
@@ -97,6 +123,9 @@ export function LoginApp() {
     },
     onError: (e) => {
       setErrorMessage(e instanceof Error ? e.message : 'Could not send code');
+    },
+    onSettled: () => {
+      resetTurnstile();
     },
   });
 
@@ -140,12 +169,13 @@ export function LoginApp() {
       event.preventDefault();
       if (!deviceQuery.data) return;
       if (!otpSent) {
+        if (turnstileEnabled && !turnstileToken) return;
         if (email.trim()) requestMutation.mutate();
         return;
       }
       if (otp.length === OTP_LEN) verifyMutation.mutate();
     },
-    [deviceQuery.data, email, otp.length, otpSent, requestMutation, verifyMutation],
+    [deviceQuery.data, email, otp.length, otpSent, requestMutation, turnstileEnabled, turnstileToken, verifyMutation],
   );
 
   const busy =
@@ -153,6 +183,7 @@ export function LoginApp() {
     deviceQuery.isFetching ||
     requestMutation.isPending ||
     verifyMutation.isPending;
+  const requestDisabled = busy || !email.trim() || (turnstileEnabled && !turnstileToken);
 
   if (!apiBase || !apiOrigin) {
     return (
@@ -309,8 +340,27 @@ export function LoginApp() {
                 </div>
               )}
 
+              {turnstileEnabled ? (
+                <div className="space-y-2">
+                  <TurnstileWidget
+                    action="user-otp-request"
+                    className="border border-border/60 bg-background/30"
+                    onError={handleTurnstileError}
+                    onExpire={handleTurnstileExpire}
+                    onToken={handleTurnstileToken}
+                    resetKey={turnstileResetKey}
+                    siteKey={turnstileSiteKey}
+                  />
+                  {turnstileError ? (
+                    <p className="text-center text-xs text-red-200" role="alert">
+                      {turnstileError}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
               {!otpSent ? (
-                <Button className="w-full" disabled={busy || !email.trim()} size="lg" type="submit">
+                <Button className="w-full" disabled={requestDisabled} size="lg" type="submit">
                   {requestMutation.isPending ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
@@ -338,7 +388,7 @@ export function LoginApp() {
                     type="button"
                     variant="outline"
                     className="w-full border-border/70"
-                    disabled={busy}
+                    disabled={requestDisabled}
                     onClick={() => requestMutation.mutate()}
                   >
                     Resend code

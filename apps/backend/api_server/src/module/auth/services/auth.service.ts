@@ -59,6 +59,8 @@ const OTP_MAX_FAILED_ATTEMPTS = 5;
 const OTP_LOCKOUT_MS = 15 * 60 * 1000;
 const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
 const RATE_LIMIT_ERROR_MESSAGE = "Too many OTP attempts. Try again later.";
+const TURNSTILE_SITEVERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
+const TURNSTILE_ERROR_MESSAGE = 'Security check failed. Please retry.';
 
 export type OtpRequestContext = {
 	ipAddress: string;
@@ -69,6 +71,12 @@ export type OtpVerifyContext = {
 };
 
 type OtpRateLimitAction = 'request' | 'verify';
+
+type TurnstileSiteverifyResponse = {
+	success: boolean;
+	action?: string;
+	'error-codes'?: string[];
+};
 
 export class AuthService {
 	private otpService: OtpService;
@@ -108,6 +116,62 @@ export class AuthService {
 
 	private async hashAuditValue(label: string, value: string): Promise<string> {
 		return this.otpService.hashKey(`${label}:${value}`, this.env.JWT_SECRET);
+	}
+
+	private isDevelopmentLikeEnvironment(): boolean {
+		const environment = this.env.ENVIRONMENT?.trim().toLowerCase();
+		return environment === 'development' || environment === 'dev' || environment === 'local' || environment === 'test';
+	}
+
+	private async validateTurnstileToken(
+		token: string | undefined,
+		ipAddress: string,
+		expectedAction: 'user-otp-request' | 'admin-otp-request',
+	): Promise<void> {
+		const secret = this.env.TURNSTILE_SECRET_KEY?.trim();
+		if (!secret) {
+			if (this.isDevelopmentLikeEnvironment()) {
+				return;
+			}
+			logger.error('Turnstile secret is not configured');
+			throw new ORPCError('BAD_REQUEST', { message: TURNSTILE_ERROR_MESSAGE });
+		}
+
+		const responseToken = token?.trim();
+		if (!responseToken) {
+			throw new ORPCError('BAD_REQUEST', { message: TURNSTILE_ERROR_MESSAGE });
+		}
+
+		try {
+			const response = await fetch(TURNSTILE_SITEVERIFY_URL, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+				},
+				body: JSON.stringify({
+					secret,
+					response: responseToken,
+					remoteip: this.normalizeIpAddress(ipAddress),
+					idempotency_key: crypto.randomUUID(),
+				}),
+			});
+			const result = (await response.json()) as TurnstileSiteverifyResponse;
+			const actionMismatch = result.action !== undefined && result.action !== expectedAction;
+			if (!response.ok || !result.success || actionMismatch) {
+				logger.warn('Turnstile validation failed', {
+					action: result.action,
+					expectedAction,
+					errorCodes: result['error-codes'] ?? [],
+				});
+				throw new ORPCError('BAD_REQUEST', { message: TURNSTILE_ERROR_MESSAGE });
+			}
+		} catch (error) {
+			if (error instanceof ORPCError) {
+				throw error;
+			}
+			logger.warn('Turnstile validation request failed', { error: error instanceof Error ? error.message : String(error) });
+			throw new ORPCError('BAD_REQUEST', { message: TURNSTILE_ERROR_MESSAGE });
+		}
 	}
 
 	private async auditOtpEvent(
@@ -306,6 +370,7 @@ export class AuthService {
 		const normalizedEmail = this.normalizeEmail(input.email);
 		const ipAddress = this.normalizeIpAddress(context.ipAddress);
 		const now = new Date();
+		await this.validateTurnstileToken(input.turnstileToken, ipAddress, 'user-otp-request');
 		const deviceExists = await findDeviceById(this.db, input.deviceUuId);
 
 		if (!deviceExists) {
@@ -513,6 +578,7 @@ export class AuthService {
 		const ipAddress = this.normalizeIpAddress(context.ipAddress);
 		const now = new Date();
 		const pseudoDeviceId = `admin-web:${normalizedEmail}`;
+		await this.validateTurnstileToken(input.turnstileToken, ipAddress, 'admin-otp-request');
 		await this.enforceOtpRateLimits('admin', 'request', {
 			email: normalizedEmail,
 			deviceId: pseudoDeviceId,

@@ -51,6 +51,7 @@ const env: Record<string, unknown> = {
 	TEST_EMAIL: 'test@example.com',
 	TEST_OTP: '123456',
 	RESEND_API_KEY: 'resend-key',
+	TURNSTILE_SECRET_KEY: 'turnstile-secret',
 	PERMISSION_MANAGER: {},
 };
 
@@ -89,9 +90,23 @@ function makeService(overrides: Record<string, unknown> = {}) {
 	return new AuthService({} as never, { ...env, ...overrides } as never);
 }
 
+function mockTurnstileSuccess(action: 'user-otp-request' | 'admin-otp-request' = 'user-otp-request') {
+	const fetchMock = vi.fn().mockResolvedValue({
+		ok: true,
+		json: vi.fn().mockResolvedValue({
+			success: true,
+			action,
+			'error-codes': [],
+		}),
+	});
+	vi.stubGlobal('fetch', fetchMock);
+	return fetchMock;
+}
+
 describe('AuthService OTP hardening', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		mockTurnstileSuccess();
 		repo.findUserByEmail.mockResolvedValue(user);
 		repo.findDeviceById.mockResolvedValue({ id: '00000000-0000-4000-8000-000000000001' });
 		repo.checkUserBanStatus.mockResolvedValue(false);
@@ -200,6 +215,7 @@ describe('AuthService OTP hardening', () => {
 	it('uses fixed TEST_OTP only in development-like environments', async () => {
 		const service = makeService({
 			ENVIRONMENT: 'development',
+			TURNSTILE_SECRET_KEY: undefined,
 			TEST_EMAIL: user.email,
 			TEST_OTP: '123456',
 		});
@@ -227,8 +243,89 @@ describe('AuthService OTP hardening', () => {
 		await service.requestOtp({
 			email: user.email,
 			deviceUuId: '00000000-0000-4000-8000-000000000001',
+			turnstileToken: 'turnstile-token',
 		}, { ipAddress: '203.0.113.10' });
 
 		expect(email.sendOtp).toHaveBeenCalled();
+	});
+
+	it('validates Turnstile before user OTP request side effects', async () => {
+		const fetchMock = mockTurnstileSuccess('user-otp-request');
+		repo.findOtpByDeviceAndEmail.mockResolvedValue(null);
+		const service = makeService();
+
+		await service.requestOtp({
+			email: user.email,
+			deviceUuId: '00000000-0000-4000-8000-000000000001',
+			turnstileToken: 'turnstile-token',
+		}, { ipAddress: '203.0.113.10' });
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			'https://challenges.cloudflare.com/turnstile/v0/siteverify',
+			expect.objectContaining({
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+			}),
+		);
+		const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+		expect(body).toMatchObject({
+			secret: 'turnstile-secret',
+			response: 'turnstile-token',
+			remoteip: '203.0.113.10',
+		});
+		expect(typeof body.idempotency_key).toBe('string');
+		expect(repo.createOtp).toHaveBeenCalled();
+	});
+
+	it('blocks user OTP request when Turnstile token is invalid', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+			ok: true,
+			json: vi.fn().mockResolvedValue({
+				success: false,
+				action: 'user-otp-request',
+				'error-codes': ['invalid-input-response'],
+			}),
+		}));
+		const service = makeService();
+
+		await expect(service.requestOtp({
+			email: user.email,
+			deviceUuId: '00000000-0000-4000-8000-000000000001',
+			turnstileToken: 'bad-token',
+		}, { ipAddress: '203.0.113.10' })).rejects.toThrow('Security check failed. Please retry.');
+
+		expect(repo.findDeviceById).not.toHaveBeenCalled();
+		expect(repo.findUserByEmail).not.toHaveBeenCalled();
+		expect(email.sendOtp).not.toHaveBeenCalled();
+	});
+
+	it('fails closed in production when Turnstile secret is missing', async () => {
+		const service = makeService({ TURNSTILE_SECRET_KEY: undefined });
+
+		await expect(service.requestOtp({
+			email: user.email,
+			deviceUuId: '00000000-0000-4000-8000-000000000001',
+			turnstileToken: 'turnstile-token',
+		}, { ipAddress: '203.0.113.10' })).rejects.toThrow('Security check failed. Please retry.');
+
+		expect(repo.findDeviceById).not.toHaveBeenCalled();
+	});
+
+	it('validates Turnstile before admin OTP request side effects', async () => {
+		const fetchMock = mockTurnstileSuccess('admin-otp-request');
+		repo.findOtpByDeviceAndEmail.mockResolvedValue(null);
+		const service = makeService();
+
+		await service.requestAdminOtp({
+			email: user.email,
+			turnstileToken: 'admin-turnstile-token',
+		}, { ipAddress: '198.51.100.4' });
+
+		const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+		expect(body).toMatchObject({
+			response: 'admin-turnstile-token',
+			remoteip: '198.51.100.4',
+		});
+		expect(repo.createOtp).toHaveBeenCalled();
 	});
 });

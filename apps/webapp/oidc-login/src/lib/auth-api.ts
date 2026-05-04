@@ -49,10 +49,16 @@ export type RequestOtpResult = {
   deviceId?: string;
 };
 
-export async function requestOtp(apiBase: string, email: string, deviceUuId: string): Promise<RequestOtpResult> {
+export async function requestOtp(
+  apiBase: string,
+  email: string,
+  deviceUuId: string,
+  turnstileToken?: string,
+): Promise<RequestOtpResult> {
   return postJson<RequestOtpResult>(apiBase, '/auth/otp/request-otp', {
     email,
     deviceUuId,
+    turnstileToken,
   });
 }
 

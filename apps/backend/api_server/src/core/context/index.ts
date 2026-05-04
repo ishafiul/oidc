@@ -34,6 +34,7 @@ export type Env = PermissionServiceEnv<typeof FGAC_CONFIG> & {
     ADMIN_INVITE_FROM_EMAIL?: string;
     DOCS_USERNAME?: string;
     DOCS_PASSWORD?: string;
+    TURNSTILE_SECRET_KEY?: string;
 };
 
 export type HonoTypes = {

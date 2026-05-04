@@ -133,7 +133,7 @@ type OrpcClient = {
 		}) => Promise<AdminUserRow>;
 	};
 	authRoutes: {
-		requestAdminOtp: (input: { body: { email: string } }) => Promise<{ success: boolean; message: string }>;
+		requestAdminOtp: (input: { body: { email: string; turnstileToken?: string } }) => Promise<{ success: boolean; message: string }>;
 		verifyAdminOtp: (input: { body: { email: string; otp: number } }) => Promise<{
 			success: boolean;
 			message: string;
@@ -379,10 +379,10 @@ export type AdminUser = {
 	readonly name: string | null;
 };
 
-export async function requestAdminOtp(baseUrl: string, email: string) {
+export async function requestAdminOtp(baseUrl: string, email: string, turnstileToken?: string) {
 	const client = createClient(baseUrl);
 	return client.authRoutes.requestAdminOtp({
-		body: { email },
+		body: { email, turnstileToken },
 	});
 }
 

@@ -37,6 +37,7 @@ export const createDeviceUuidFullDto = z.object({
 export const requestOtpDto = z.object({
   email: z.email(),
   deviceUuId: z.uuid(),
+  turnstileToken: z.string().max(2048).optional(),
 }).meta({
   title: "RequestOtpRequest",
   description: "Request payload for requesting an OTP to be sent to the user's email",
@@ -68,6 +69,7 @@ export const refreshTokenDto = z.object({
 
 export const requestAdminOtpDto = z.object({
   email: z.email(),
+  turnstileToken: z.string().max(2048).optional(),
 }).meta({
   title: "RequestAdminOtpRequest",
   description: "Request payload for requesting an admin OTP to login from web UI",
