@@ -6,6 +6,8 @@
     "deploy:permission-manager": "wrangler deploy --config ../worker/permission/wrangler.jsonc",
     "deploy": "pnpm run deploy:permission-manager && wrangler deploy --minify",
     "cf-typegen": "wrangler types --env-interface CloudflareBindings",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
     "migration:generate": "drizzle-kit generate",
     "migration:push:local": "dotenvx run -f .env.local -- drizzle-kit push",
     "migration:push:staging": "dotenvx run -f .env.staging -- drizzle-kit push",
@@ -35,6 +37,7 @@
     "drizzle-kit": "catalog:",
     "tsx": "catalog:",
     "typescript": "catalog:",
+    "vitest": "catalog:",
     "wrangler": "catalog:"
   }
 }

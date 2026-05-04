@@ -35,6 +35,14 @@ function getAuthHeader(authHeader: string | null | undefined): string | null {
     return authHeader;
 }
 
+function getRequestIp(ctx: ReturnType<typeof getTRPCContext>): string {
+    return (
+        ctx.c.req.header("cf-connecting-ip") ||
+        ctx.c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ||
+        "unknown"
+    );
+}
+
 export const authRoutes = {
     requestAdminOtp: publicProcedure
         .route({
@@ -50,7 +58,7 @@ export const authRoutes = {
         .handler(async ({ input, context }) => {
             const ctx = getTRPCContext(context);
             const service = new AuthService(ctx.get("db"), ctx.env);
-            return service.requestAdminOtp(input.body);
+            return service.requestAdminOtp(input.body, { ipAddress: getRequestIp(ctx) });
         }),
 
     verifyAdminOtp: publicProcedure
@@ -67,7 +75,7 @@ export const authRoutes = {
         .handler(async ({ input, context }) => {
             const ctx = getTRPCContext(context);
             const service = new AuthService(ctx.get("db"), ctx.env);
-            const result = await service.verifyAdminOtp(input.body);
+            const result = await service.verifyAdminOtp(input.body, { ipAddress: getRequestIp(ctx) });
             const projectsService = new ProjectsService(ctx.get("db"), ctx.env);
             await projectsService.acceptPendingInvitations(result.user.email, result.user.id);
             const csrfToken = setAdminAuthCookies(ctx.c, result.accessToken);
@@ -185,7 +193,7 @@ export const authRoutes = {
             const ctx = getTRPCContext(context);
 
             const service = new AuthService(ctx.get("db"), ctx.env);
-            return service.requestOtp(input.body);
+            return service.requestOtp(input.body, { ipAddress: getRequestIp(ctx) });
         }),
 
     verifyOtp: publicProcedure
@@ -203,7 +211,7 @@ export const authRoutes = {
             logger.debug("verifyOtp handler called");
             const ctx = getTRPCContext(context);
             const service = new AuthService(ctx.get("db"), ctx.env);
-            return service.verifyOtp(input.body);
+            return service.verifyOtp(input.body, { ipAddress: getRequestIp(ctx) });
         }),
 
     createOidcAuthorizeSession: publicProcedure

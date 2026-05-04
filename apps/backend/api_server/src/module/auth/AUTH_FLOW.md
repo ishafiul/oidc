@@ -32,8 +32,8 @@ sequenceDiagram
         DB-->>API: Trusted Session found
         API-->>Client: { success: true, accessToken, message: "Logged in with trusted device" }
     else Device NOT Trusted
-        API->>API: Generate 5-digit OTP
-        API->>DB: Store/Update OTP
+        API->>API: Generate 6-digit OTP
+        API->>DB: Store/Update hashed OTP and rate-limit counters
         API->>Email: Send OTP to user
         API-->>Client: { success: true, message: "OTP sent successfully" }
     end

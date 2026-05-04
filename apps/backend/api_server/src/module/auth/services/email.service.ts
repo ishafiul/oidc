@@ -4,7 +4,7 @@ import { ORPCError } from '@orpc/server';
 export class EmailService {
   constructor(private readonly apiKey: string) { }
 
-  async sendOtp(email: string, otp: number): Promise<void> {
+  async sendOtp(email: string, otp: string | number): Promise<void> {
     const resend = new Resend(this.apiKey);
 
     try {
@@ -29,5 +29,4 @@ export class EmailService {
     }
   }
 }
-
 

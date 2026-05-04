@@ -36,10 +36,15 @@ import {
 	findUserById,
 	checkUserBanStatus,
 	deleteOtpByDeviceAndEmail,
-	updateOtp,
+	updateOtpChallenge,
 	createOtp,
+	consumeOtpRateLimit,
+	createOtpAttemptEvent,
+	recordOtpFailedAttempt,
 	updateAuthLastRefresh,
-	findAuthByDeviceId
+	findAuthByDeviceId,
+	type OtpAttemptOutcome,
+	type OtpPurpose,
 } from '../repositories';
 import { z } from 'zod';
 import { OtpService } from "./otp.service";
@@ -48,6 +53,22 @@ import { EmailService } from "./email.service";
 import { logger } from "common-pack/logger";
 
 const MAX_ACTIVE_DEVICES = 1;
+const OTP_LENGTH = 6;
+const OTP_TTL_MS = 5 * 60 * 1000;
+const OTP_MAX_FAILED_ATTEMPTS = 5;
+const OTP_LOCKOUT_MS = 15 * 60 * 1000;
+const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
+const RATE_LIMIT_ERROR_MESSAGE = "Too many OTP attempts. Try again later.";
+
+export type OtpRequestContext = {
+	ipAddress: string;
+};
+
+export type OtpVerifyContext = {
+	ipAddress: string;
+};
+
+type OtpRateLimitAction = 'request' | 'verify';
 
 export class AuthService {
 	private otpService: OtpService;
@@ -65,8 +86,145 @@ export class AuthService {
 		return email.toLowerCase().trim();
 	}
 
+	private normalizeIpAddress(ipAddress: string | undefined): string {
+		const firstForwarded = ipAddress?.split(',')[0]?.trim();
+		return firstForwarded || 'unknown';
+	}
 
+	private getFixedTestOtp(normalizedEmail: string): string | null {
+		if (!this.otpService.isFixedTestOtpEnabled(this.env.ENVIRONMENT)) {
+			return null;
+		}
+		if (!this.env.TEST_EMAIL || normalizedEmail !== this.normalizeEmail(this.env.TEST_EMAIL)) {
+			return null;
+		}
+		const configured = this.env.TEST_OTP?.trim();
+		return configured && /^\d+$/.test(configured) ? configured : null;
+	}
 
+	private async hashOtpValue(value: string): Promise<string> {
+		return this.otpService.hashOtp(value, this.env.JWT_SECRET);
+	}
+
+	private async hashAuditValue(label: string, value: string): Promise<string> {
+		return this.otpService.hashKey(`${label}:${value}`, this.env.JWT_SECRET);
+	}
+
+	private async auditOtpEvent(
+		purpose: OtpPurpose,
+		outcome: OtpAttemptOutcome,
+		input: { email: string; deviceId: string; ipAddress: string },
+		now = new Date(),
+	): Promise<void> {
+		await createOtpAttemptEvent(this.db, {
+			id: crypto.randomUUID(),
+			purpose,
+			outcome,
+			emailHash: await this.hashAuditValue('otp-audit-email', input.email),
+			deviceHash: await this.hashAuditValue('otp-audit-device', input.deviceId),
+			ipHash: await this.hashAuditValue('otp-audit-ip', this.normalizeIpAddress(input.ipAddress)),
+			createdAt: now,
+		});
+	}
+
+	private async enforceOtpRateLimits(
+		purpose: OtpPurpose,
+		action: OtpRateLimitAction,
+		input: { email: string; deviceId: string; ipAddress: string },
+		now = new Date(),
+	): Promise<void> {
+		const ipAddress = this.normalizeIpAddress(input.ipAddress);
+		const limits =
+			action === 'request'
+				? [
+					{ dimension: 'email', value: input.email, limit: 5, windowMs: 60 * 60 * 1000, blockMs: 60 * 60 * 1000 },
+					{ dimension: 'device', value: input.deviceId, limit: 5, windowMs: 60 * 60 * 1000, blockMs: 60 * 60 * 1000 },
+					{ dimension: 'ip', value: ipAddress, limit: 30, windowMs: 60 * 60 * 1000, blockMs: 60 * 60 * 1000 },
+				]
+				: [
+					{ dimension: 'email', value: input.email, limit: 10, windowMs: 15 * 60 * 1000, blockMs: 15 * 60 * 1000 },
+					{ dimension: 'device', value: input.deviceId, limit: 10, windowMs: 15 * 60 * 1000, blockMs: 15 * 60 * 1000 },
+					{ dimension: 'ip', value: ipAddress, limit: 50, windowMs: 15 * 60 * 1000, blockMs: 15 * 60 * 1000 },
+				];
+
+		for (const limit of limits) {
+			const scope = `otp:${purpose}:${action}:${limit.dimension}`;
+			const keyHash = await this.hashAuditValue(`otp-rate:${scope}`, limit.value);
+			const result = await consumeOtpRateLimit(this.db, {
+				scope,
+				keyHash,
+				limit: limit.limit,
+				windowMs: limit.windowMs,
+				blockMs: limit.blockMs,
+				now,
+			});
+			if (!result.allowed) {
+				await this.auditOtpEvent(
+					purpose,
+					action === 'request' ? 'request_rate_limited' : 'verify_rate_limited',
+					{ ...input, ipAddress },
+					now,
+				);
+				throw new ORPCError("FORBIDDEN", { message: RATE_LIMIT_ERROR_MESSAGE });
+			}
+		}
+	}
+
+	private async resolveOtpCode(normalizedEmail: string): Promise<string> {
+		return this.getFixedTestOtp(normalizedEmail) ?? this.otpService.generate(OTP_LENGTH);
+	}
+
+	private shouldSendOtpEmail(normalizedEmail: string): boolean {
+		return this.getFixedTestOtp(normalizedEmail) === null;
+	}
+
+	private assertOtpRequestCooldown(
+		otp: { lastRequestAt: Date | null } | undefined,
+		purpose: OtpPurpose,
+		input: { email: string; deviceId: string; ipAddress: string },
+		now: Date,
+	): Promise<void> | void {
+		if (!otp?.lastRequestAt) {
+			return;
+		}
+		if (otp.lastRequestAt.getTime() + OTP_RESEND_COOLDOWN_MS <= now.getTime()) {
+			return;
+		}
+		return this.auditOtpEvent(purpose, 'request_rate_limited', input, now).then(() => {
+			throw new ORPCError("FORBIDDEN", { message: RATE_LIMIT_ERROR_MESSAGE });
+		});
+	}
+
+	private async storeOtp(
+		input: {
+			existingOtp: Awaited<ReturnType<typeof findOtpByDeviceAndEmail>>;
+			email: string;
+			deviceId: string;
+			otpCode: string;
+			now: Date;
+		},
+	): Promise<void> {
+		const otpHash = await this.hashOtpValue(input.otpCode);
+		const expiredAt = new Date(input.now.getTime() + OTP_TTL_MS);
+
+		if (input.existingOtp) {
+			await updateOtpChallenge(this.db, input.existingOtp.id, {
+				otpHash,
+				expiredAt,
+				lastRequestAt: input.now,
+			});
+			return;
+		}
+
+		await createOtp(this.db, {
+			id: crypto.randomUUID(),
+			otpHash,
+			email: input.email,
+			deviceUuId: input.deviceId,
+			expiredAt,
+			lastRequestAt: input.now,
+		});
+	}
 	async registerDevice(fullInput: z.infer<typeof createDeviceUuidFullDto>) {
 		logger.info("Registering device", { deviceType: fullInput.deviceType, model: fullInput.deviceModel });
 		const fingerprintComponents = [
@@ -143,15 +301,23 @@ export class AuthService {
 		};
 	}
 
-	async requestOtp(input: z.infer<typeof requestOtpDto>) {
+	async requestOtp(input: z.infer<typeof requestOtpDto>, context: OtpRequestContext = { ipAddress: 'unknown' }) {
 		logger.info("Requesting OTP", { email: input.email, deviceId: input.deviceUuId });
 		const normalizedEmail = this.normalizeEmail(input.email);
+		const ipAddress = this.normalizeIpAddress(context.ipAddress);
+		const now = new Date();
 		const deviceExists = await findDeviceById(this.db, input.deviceUuId);
 
 		if (!deviceExists) {
 			logger.warn("Device not found during OTP request", { deviceId: input.deviceUuId });
 			throw new ORPCError("NOT_FOUND", { message: "Device not found" });
 		}
+
+		await this.enforceOtpRateLimits('user', 'request', {
+			email: normalizedEmail,
+			deviceId: input.deviceUuId,
+			ipAddress,
+		}, now);
 
 		await this.findOrCreateUser(normalizedEmail);
 		const user = await findUserByEmail(this.db, normalizedEmail);
@@ -192,27 +358,30 @@ export class AuthService {
 
 		await deleteAuthByDeviceId(this.db, input.deviceUuId);
 		const existingOtp = await findOtpByDeviceAndEmail(this.db, input.deviceUuId, normalizedEmail);
+		await this.assertOtpRequestCooldown(existingOtp, 'user', {
+			email: normalizedEmail,
+			deviceId: input.deviceUuId,
+			ipAddress,
+		}, now);
 
-		let otpValue: number;
-		if (normalizedEmail === this.env.TEST_EMAIL) {
-			otpValue = parseInt(this.env.TEST_OTP);
-		} else if (existingOtp && !this.otpService.isExpired(existingOtp)) {
-			otpValue = existingOtp.otp;
-		} else {
-			otpValue = parseInt(this.otpService.generate(5));
+		const otpCode = await this.resolveOtpCode(normalizedEmail);
+		await this.storeOtp({
+			existingOtp,
+			email: normalizedEmail,
+			deviceId: input.deviceUuId,
+			otpCode,
+			now,
+		});
+
+		if (this.shouldSendOtpEmail(normalizedEmail)) {
+			await this.emailService.sendOtp(normalizedEmail, otpCode);
 		}
 
-		const expiredAt = new Date(Date.now() + 5 * 60 * 1000);
-		if (existingOtp) {
-			await updateOtp(this.db, existingOtp.id, otpValue, expiredAt);
-		} else {
-			await createOtp(this.db, crypto.randomUUID(), otpValue, normalizedEmail, input.deviceUuId, expiredAt);
-		}
-
-		if (normalizedEmail !== this.env.TEST_EMAIL) {
-			await this.emailService.sendOtp(normalizedEmail, otpValue);
-		}
-
+		await this.auditOtpEvent('user', 'requested', {
+			email: normalizedEmail,
+			deviceId: input.deviceUuId,
+			ipAddress,
+		}, now);
 		logger.info("OTP sent", { email: normalizedEmail, deviceId: input.deviceUuId });
 
 		return {
@@ -221,12 +390,26 @@ export class AuthService {
 		};
 	}
 
-	async verifyOtp(input: z.infer<typeof verifyOtpDto>) {
+	async verifyOtp(input: z.infer<typeof verifyOtpDto>, context: OtpVerifyContext = { ipAddress: 'unknown' }) {
 		logger.info("Verifying OTP", { email: input.email, deviceId: input.deviceUuId });
 		const normalizedEmail = this.normalizeEmail(input.email);
+		const ipAddress = this.normalizeIpAddress(context.ipAddress);
+		const now = new Date();
+
+		await this.enforceOtpRateLimits('user', 'verify', {
+			email: normalizedEmail,
+			deviceId: input.deviceUuId,
+			ipAddress,
+		}, now);
+
 		const user = await findUserByEmail(this.db, normalizedEmail);
 
 		if (!user) {
+			await this.auditOtpEvent('user', 'not_found', {
+				email: normalizedEmail,
+				deviceId: input.deviceUuId,
+				ipAddress,
+			}, now);
 			logger.warn("User not found during OTP verify", { email: normalizedEmail });
 			throw new ORPCError("NOT_FOUND", { message: "User not found" });
 		}
@@ -240,17 +423,60 @@ export class AuthService {
 		const otp = await findOtpByDeviceAndEmail(this.db, input.deviceUuId, normalizedEmail);
 
 		if (!otp) {
+			await this.auditOtpEvent('user', 'not_found', {
+				email: normalizedEmail,
+				deviceId: input.deviceUuId,
+				ipAddress,
+			}, now);
 			logger.warn("OTP not found", { deviceId: input.deviceUuId, email: normalizedEmail });
 			throw new ORPCError("NOT_FOUND", { message: "OTP not found" });
 		}
 
+		if (this.otpService.isLocked(otp, now)) {
+			await this.auditOtpEvent('user', 'locked', {
+				email: normalizedEmail,
+				deviceId: input.deviceUuId,
+				ipAddress,
+			}, now);
+			logger.warn("OTP locked", { deviceId: input.deviceUuId, email: normalizedEmail });
+			throw new ORPCError("FORBIDDEN", { message: "OTP is locked. Try again later." });
+		}
+
 		if (this.otpService.isExpired(otp)) {
+			await this.auditOtpEvent('user', 'expired', {
+				email: normalizedEmail,
+				deviceId: input.deviceUuId,
+				ipAddress,
+			}, now);
 			logger.warn("OTP expired", { deviceId: input.deviceUuId, email: normalizedEmail });
 			throw new ORPCError("BAD_REQUEST", { message: "OTP expired" });
 		}
 
-		if (otp.otp !== input.otp) {
+		const validOtp = await this.otpService.verifyOtp(input.otp, otp.otpHash, this.env.JWT_SECRET);
+		if (!validOtp) {
+			const nextFailedAttempts = otp.failedAttempts + 1;
+			const lockedUntil =
+				nextFailedAttempts >= OTP_MAX_FAILED_ATTEMPTS
+					? new Date(now.getTime() + OTP_LOCKOUT_MS)
+					: null;
+			await recordOtpFailedAttempt(this.db, otp.id, {
+				now,
+				lockedUntil,
+			});
+			await this.auditOtpEvent(
+				'user',
+				lockedUntil ? 'locked_after_invalid' : 'invalid',
+				{
+					email: normalizedEmail,
+					deviceId: input.deviceUuId,
+					ipAddress,
+				},
+				now,
+			);
 			logger.warn("Invalid OTP provided", { deviceId: input.deviceUuId, email: normalizedEmail });
+			if (lockedUntil) {
+				throw new ORPCError("FORBIDDEN", { message: "OTP is locked. Try again later." });
+			}
 			throw new ORPCError("BAD_REQUEST", { message: "Invalid OTP" });
 		}
 
@@ -266,6 +492,11 @@ export class AuthService {
 
 		const accessToken = await this.jwtService.generateAccessToken(user.id, user.email);
 
+		await this.auditOtpEvent('user', 'verified', {
+			email: normalizedEmail,
+			deviceId: input.deviceUuId,
+			ipAddress,
+		}, now);
 		logger.info("OTP verification successful", { userId: user.id, deviceId: input.deviceUuId });
 
 		return {
@@ -276,9 +507,18 @@ export class AuthService {
 		};
 	}
 
-	async requestAdminOtp(input: z.infer<typeof requestAdminOtpDto>) {
+	async requestAdminOtp(input: z.infer<typeof requestAdminOtpDto>, context: OtpRequestContext = { ipAddress: 'unknown' }) {
 		logger.info("Requesting admin OTP", { email: input.email });
 		const normalizedEmail = this.normalizeEmail(input.email);
+		const ipAddress = this.normalizeIpAddress(context.ipAddress);
+		const now = new Date();
+		const pseudoDeviceId = `admin-web:${normalizedEmail}`;
+		await this.enforceOtpRateLimits('admin', 'request', {
+			email: normalizedEmail,
+			deviceId: pseudoDeviceId,
+			ipAddress,
+		}, now);
+
 		await this.findOrCreateUser(normalizedEmail);
 		const user = await findUserByEmail(this.db, normalizedEmail);
 
@@ -291,41 +531,57 @@ export class AuthService {
 			throw new ORPCError("FORBIDDEN", { message: "User account is banned" });
 		}
 
-		const pseudoDeviceId = `admin-web:${normalizedEmail}`;
 		const existingOtp = await findOtpByDeviceAndEmail(this.db, pseudoDeviceId, normalizedEmail);
-		let otpValue: number;
+		await this.assertOtpRequestCooldown(existingOtp, 'admin', {
+			email: normalizedEmail,
+			deviceId: pseudoDeviceId,
+			ipAddress,
+		}, now);
 
-		if (normalizedEmail === this.env.TEST_EMAIL) {
-			otpValue = parseInt(this.env.TEST_OTP);
-		} else if (existingOtp && !this.otpService.isExpired(existingOtp)) {
-			otpValue = existingOtp.otp;
-		} else {
-			otpValue = parseInt(this.otpService.generate(5));
+		const otpCode = await this.resolveOtpCode(normalizedEmail);
+		await this.storeOtp({
+			existingOtp,
+			email: normalizedEmail,
+			deviceId: pseudoDeviceId,
+			otpCode,
+			now,
+		});
+
+		if (this.shouldSendOtpEmail(normalizedEmail)) {
+			await this.emailService.sendOtp(normalizedEmail, otpCode);
 		}
 
-		const expiredAt = new Date(Date.now() + 5 * 60 * 1000);
-		if (existingOtp) {
-			await updateOtp(this.db, existingOtp.id, otpValue, expiredAt);
-		} else {
-			await createOtp(this.db, crypto.randomUUID(), otpValue, normalizedEmail, pseudoDeviceId, expiredAt);
-		}
-
-		if (normalizedEmail !== this.env.TEST_EMAIL) {
-			await this.emailService.sendOtp(normalizedEmail, otpValue);
-		}
-
+		await this.auditOtpEvent('admin', 'requested', {
+			email: normalizedEmail,
+			deviceId: pseudoDeviceId,
+			ipAddress,
+		}, now);
 		return {
 			success: true,
 			message: "Admin OTP sent successfully",
 		};
 	}
 
-	async verifyAdminOtp(input: z.infer<typeof verifyAdminOtpDto>) {
+	async verifyAdminOtp(input: z.infer<typeof verifyAdminOtpDto>, context: OtpVerifyContext = { ipAddress: 'unknown' }) {
 		logger.info("Verifying admin OTP", { email: input.email });
 		const normalizedEmail = this.normalizeEmail(input.email);
+		const ipAddress = this.normalizeIpAddress(context.ipAddress);
+		const now = new Date();
+		const pseudoDeviceId = `admin-web:${normalizedEmail}`;
+		await this.enforceOtpRateLimits('admin', 'verify', {
+			email: normalizedEmail,
+			deviceId: pseudoDeviceId,
+			ipAddress,
+		}, now);
+
 		const user = await findUserByEmail(this.db, normalizedEmail);
 
 		if (!user) {
+			await this.auditOtpEvent('admin', 'not_found', {
+				email: normalizedEmail,
+				deviceId: pseudoDeviceId,
+				ipAddress,
+			}, now);
 			throw new ORPCError("NOT_FOUND", { message: "User not found" });
 		}
 
@@ -334,16 +590,56 @@ export class AuthService {
 			throw new ORPCError("FORBIDDEN", { message: "User account is banned" });
 		}
 
-		const pseudoDeviceId = `admin-web:${normalizedEmail}`;
 		const otp = await findOtpByDeviceAndEmail(this.db, pseudoDeviceId, normalizedEmail);
 
 		if (!otp) {
+			await this.auditOtpEvent('admin', 'not_found', {
+				email: normalizedEmail,
+				deviceId: pseudoDeviceId,
+				ipAddress,
+			}, now);
 			throw new ORPCError("NOT_FOUND", { message: "OTP not found" });
 		}
+		if (this.otpService.isLocked(otp, now)) {
+			await this.auditOtpEvent('admin', 'locked', {
+				email: normalizedEmail,
+				deviceId: pseudoDeviceId,
+				ipAddress,
+			}, now);
+			throw new ORPCError("FORBIDDEN", { message: "OTP is locked. Try again later." });
+		}
 		if (this.otpService.isExpired(otp)) {
+			await this.auditOtpEvent('admin', 'expired', {
+				email: normalizedEmail,
+				deviceId: pseudoDeviceId,
+				ipAddress,
+			}, now);
 			throw new ORPCError("BAD_REQUEST", { message: "OTP expired" });
 		}
-		if (otp.otp !== input.otp) {
+		const validOtp = await this.otpService.verifyOtp(input.otp, otp.otpHash, this.env.JWT_SECRET);
+		if (!validOtp) {
+			const nextFailedAttempts = otp.failedAttempts + 1;
+			const lockedUntil =
+				nextFailedAttempts >= OTP_MAX_FAILED_ATTEMPTS
+					? new Date(now.getTime() + OTP_LOCKOUT_MS)
+					: null;
+			await recordOtpFailedAttempt(this.db, otp.id, {
+				now,
+				lockedUntil,
+			});
+			await this.auditOtpEvent(
+				'admin',
+				lockedUntil ? 'locked_after_invalid' : 'invalid',
+				{
+					email: normalizedEmail,
+					deviceId: pseudoDeviceId,
+					ipAddress,
+				},
+				now,
+			);
+			if (lockedUntil) {
+				throw new ORPCError("FORBIDDEN", { message: "OTP is locked. Try again later." });
+			}
 			throw new ORPCError("BAD_REQUEST", { message: "Invalid OTP" });
 		}
 
@@ -352,6 +648,11 @@ export class AuthService {
 
 		const accessToken = await this.jwtService.generateAccessToken(user.id, user.email);
 
+		await this.auditOtpEvent('admin', 'verified', {
+			email: normalizedEmail,
+			deviceId: pseudoDeviceId,
+			ipAddress,
+		}, now);
 		return {
 			success: true,
 			message: "Admin OTP verified successfully",
