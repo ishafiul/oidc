@@ -36,6 +36,13 @@
       "when": 1777919577707,
       "tag": "0004_fearless_shriek",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1778009109401,
+      "tag": "0005_lush_luke_cage",
+      "breakpoints": true
     }
   ]
 }

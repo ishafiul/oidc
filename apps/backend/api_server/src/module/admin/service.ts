@@ -8,6 +8,7 @@ import {
 	oidcRefreshTokens,
 	projectMemberships,
 	projects,
+	trustedDevices,
 	users,
 } from '../../core/db/schema';
 import { banUser, findUserById, unbanUser } from '../auth/repositories/user.repository';
@@ -142,8 +143,8 @@ export class AdminUsersService {
 				userId: auths.userId,
 				deviceId: auths.deviceId,
 				lastRefresh: auths.lastRefresh,
-				isTrusted: auths.isTrusted,
-				trustedAt: auths.trustedAt,
+				trustedDeviceId: trustedDevices.id,
+				trustedAt: trustedDevices.trustedAt,
 				deviceRowId: devices.id,
 				fingerprint: devices.fingerprint,
 				deviceType: devices.deviceType,
@@ -166,6 +167,10 @@ export class AdminUsersService {
 			})
 			.from(auths)
 			.leftJoin(devices, eq(auths.deviceId, devices.id))
+			.leftJoin(
+				trustedDevices,
+				and(eq(auths.userId, trustedDevices.userId), eq(auths.deviceId, trustedDevices.deviceId)),
+			)
 			.where(inArray(auths.userId, userIds));
 
 		const sessionsByUserId = new Map<string, AdminUserSessionInfo[]>();
@@ -204,7 +209,7 @@ export class AdminUsersService {
 				userId: row.userId,
 				deviceId: row.deviceId,
 				lastRefresh: row.lastRefresh,
-				isTrusted: row.isTrusted,
+				isTrusted: row.trustedDeviceId !== null,
 				trustedAt: row.trustedAt,
 				activeUntil,
 				isActive: activeUntil !== null && activeUntil.getTime() > now,

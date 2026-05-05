@@ -24,6 +24,7 @@ import { checkPermissions, extractResourceInfo } from './module/fgac/utils/auth.
 import { enrichContextWithAuthUser, getTRPCContext } from "./core/context";
 import { extractAndVerifyToken, validateUser } from "./core/utils/auth";
 import { getAuthTokenFromRequest } from './module/auth/session';
+import type { AccessTokenPayload } from './module/auth/services/jwt.service';
 
 // ============================================
 // Types
@@ -65,7 +66,7 @@ function createBaseProtectedProcedure(permissions: ProcedurePermissions<Config>)
     const jwtSecret = trpcCtx.env.JWT_SECRET ?? '';
 
     // Verify token
-    let payload: { userId: string; email: string };
+    let payload: AccessTokenPayload;
     try {
       payload = await extractAndVerifyToken(token, jwtSecret);
     } catch {
@@ -75,7 +76,7 @@ function createBaseProtectedProcedure(permissions: ProcedurePermissions<Config>)
     }
 
     // Validate user exists and is active
-    const user = await validateUser(trpcCtx, payload.userId);
+    const user = await validateUser(trpcCtx, payload);
 
     // Set user in context
     c.set('user', user);

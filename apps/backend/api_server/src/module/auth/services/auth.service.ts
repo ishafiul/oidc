@@ -2,7 +2,6 @@ import { eq } from 'drizzle-orm';
 import { findUserByEmail, createUser, isUserBanned } from '../repositories';
 import { findDeviceById } from '../repositories';
 import { findOtpByDeviceAndEmail } from '../repositories';
-import { findAuthByUserId } from '../repositories';
 import { TRPCContext } from "../../../core/context";
 import type { InferDocType, InferRelation } from '../../fgac/adapters/IPermissionAdapter';
 import { FGAC_CONFIG, type FGACDocType } from '../../fgac/config/fgac.config';
@@ -45,10 +44,11 @@ import {
 	findAuthByDeviceId,
 	type OtpAttemptOutcome,
 	type OtpPurpose,
+	upsertTrustedDevice,
 } from '../repositories';
 import { z } from 'zod';
 import { OtpService } from "./otp.service";
-import { JwtService } from "./jwt.service";
+import { JwtService, type AccessTokenPayload } from "./jwt.service";
 import { EmailService } from "./email.service";
 import { logger } from "common-pack/logger";
 
@@ -407,8 +407,14 @@ export class AuthService {
 				await deleteAuthByUserId(this.db, user.id);
 			}
 
-			await createAuthSession(this.db, crypto.randomUUID(), user.id, input.deviceUuId, true);
-			const accessToken = await this.jwtService.generateAccessToken(user.id, user.email);
+			const authSessionId = crypto.randomUUID();
+			await createAuthSession(this.db, authSessionId, user.id, input.deviceUuId, false);
+			const accessToken = await this.jwtService.generateAccessToken({
+				userId: user.id,
+				email: user.email,
+				sessionId: authSessionId,
+				deviceId: input.deviceUuId,
+			});
 
 			logger.info("Trusted device login successful", { userId: user.id, deviceId: input.deviceUuId });
 
@@ -553,9 +559,18 @@ export class AuthService {
 		}
 
 		const isTrusted = input.isTrusted ?? false;
-		await createAuthSession(this.db, crypto.randomUUID(), user.id, input.deviceUuId, isTrusted);
+		const authSessionId = crypto.randomUUID();
+		await createAuthSession(this.db, authSessionId, user.id, input.deviceUuId, false);
+		if (isTrusted) {
+			await upsertTrustedDevice(this.db, user.id, input.deviceUuId);
+		}
 
-		const accessToken = await this.jwtService.generateAccessToken(user.id, user.email);
+		const accessToken = await this.jwtService.generateAccessToken({
+			userId: user.id,
+			email: user.email,
+			sessionId: authSessionId,
+			deviceId: input.deviceUuId,
+		});
 
 		await this.auditOtpEvent('user', 'verified', {
 			email: normalizedEmail,
@@ -710,9 +725,16 @@ export class AuthService {
 		}
 
 		await deleteOtpByDeviceAndEmail(this.db, pseudoDeviceId, normalizedEmail);
-		await createAuthSession(this.db, crypto.randomUUID(), user.id, `admin-web:${crypto.randomUUID()}`, true);
+		const authSessionId = crypto.randomUUID();
+		const deviceId = `admin-web:${crypto.randomUUID()}`;
+		await createAuthSession(this.db, authSessionId, user.id, deviceId, false);
 
-		const accessToken = await this.jwtService.generateAccessToken(user.id, user.email);
+		const accessToken = await this.jwtService.generateAccessToken({
+			userId: user.id,
+			email: user.email,
+			sessionId: authSessionId,
+			deviceId,
+		});
 
 		await this.auditOtpEvent('admin', 'verified', {
 			email: normalizedEmail,
@@ -749,9 +771,7 @@ export class AuthService {
 			throw new ORPCError("FORBIDDEN", { message: "Unauthorized to logout this device" });
 		}
 
-		if (!auth.isTrusted) {
-			await deleteAuthByDeviceId(this.db, input.deviceId);
-		}
+		await deleteAuthByDeviceId(this.db, input.deviceId);
 		logger.info("Logout successful", { deviceId: input.deviceId, userId: authUser.id });
 
 		return { success: true };
@@ -788,6 +808,15 @@ export class AuthService {
 			throw new ORPCError("FORBIDDEN", { message: "Device does not belong to authenticated user" });
 		}
 
+		if (payload.sessionId !== auth.id || payload.deviceId !== auth.deviceId) {
+			logger.warn("Session mismatch during refresh", {
+				tokenSessionId: payload.sessionId,
+				authSessionId: auth.id,
+				tokenDeviceId: payload.deviceId,
+				authDeviceId: auth.deviceId,
+			});
+			throw new ORPCError("FORBIDDEN", { message: "Token does not match active session" });
+		}
 
 		const lastRefreshDate = auth.lastRefresh ?? new Date(0);
 		const currentDateTime = new Date();
@@ -799,12 +828,18 @@ export class AuthService {
 		}
 
 		await updateAuthLastRefresh(this.db, auth.id);
-		const accessToken = await this.jwtService.generateAccessToken(auth.userId, foundUser.email);
+		const accessToken = await this.jwtService.generateAccessToken({
+			userId: auth.userId,
+			email: foundUser.email,
+			sessionId: auth.id,
+			deviceId: auth.deviceId,
+		});
 
 		return { accessToken };
 	}
 
-	async validateUser(userId: string): Promise<SelectUser> {
+	async validateUser(payload: AccessTokenPayload): Promise<SelectUser> {
+		const userId = payload.userId;
 		const [foundUser] = await this.db.select().from(users).where(eq(users.id, userId)).limit(1);
 
 		if (!foundUser) {
@@ -816,8 +851,18 @@ export class AuthService {
 			throw new Error('User account is banned');
 		}
 
-		const authSession = await findAuthByUserId(this.db, userId);
+		const authSession = await findAuthByDeviceId(this.db, payload.deviceId);
 		if (!authSession) {
+			throw new Error('Session not found or expired');
+		}
+
+		if (authSession.userId !== userId || authSession.id !== payload.sessionId) {
+			throw new Error('Session not found or expired');
+		}
+
+		const lastRefreshDate = authSession.lastRefresh ?? new Date(0);
+		const maxValidTime = new Date(lastRefreshDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+		if (new Date() >= maxValidTime) {
 			throw new Error('Session not found or expired');
 		}
 
@@ -865,9 +910,9 @@ export class AuthService {
 }
 
 
-export async function validateUser(ctx: TRPCContext, userId: string) {
+export async function validateUser(ctx: TRPCContext, payload: AccessTokenPayload) {
 	const service = new AuthService(ctx.c.get('db'), ctx.env);
-	return service.validateUser(userId);
+	return service.validateUser(payload);
 }
 
 export async function extractAndVerifyToken(authHeader: string | null | undefined, jwtSecret: string) {

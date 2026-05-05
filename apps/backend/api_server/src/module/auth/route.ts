@@ -27,6 +27,7 @@ import { clearAdminAuthCookies, getAuthTokenFromRequest, setAdminAuthCookies } f
 import { extractAndVerifyToken, validateUser } from "../../core/utils/auth";
 import { ProjectsService } from "../projects/service";
 import { OidcService } from "../oidc/service";
+import { deleteAuthById } from "./repositories";
 
 const OPENAPI_TAG = "Auth";
 
@@ -108,7 +109,7 @@ export const authRoutes = {
 
             try {
                 const payload = await extractAndVerifyToken(token, ctx.env.JWT_SECRET ?? "");
-                const user = await validateUser(ctx, payload.userId);
+                const user = await validateUser(ctx, payload);
 
                 return {
                     authenticated: true,
@@ -135,6 +136,18 @@ export const authRoutes = {
         .output(logoutResponseDto)
         .handler(async ({ context }) => {
             const ctx = getTRPCContext(context);
+            const token = getAuthTokenFromRequest(ctx.c);
+            if (token) {
+                try {
+                    const payload = await extractAndVerifyToken(token, ctx.env.JWT_SECRET ?? "");
+                    await validateUser(ctx, payload);
+                    await deleteAuthById(ctx.get("db"), payload.sessionId);
+                } catch (error) {
+                    logger.warn("Admin logout could not revoke active session", {
+                        error: error instanceof Error ? error.message : String(error),
+                    });
+                }
+            }
             clearAdminAuthCookies(ctx.c);
             return { success: true };
         }),
@@ -228,7 +241,7 @@ export const authRoutes = {
                 throw new ORPCError("UNAUTHORIZED", { message: "No token provided" });
             }
             const payload = await extractAndVerifyToken(token, ctx.env.JWT_SECRET ?? "");
-            await validateUser(ctx, payload.userId);
+            await validateUser(ctx, payload);
             const oidc = new OidcService(ctx.get("db"), ctx.env);
             return oidc.createAuthorizeSession(payload.userId);
         }),

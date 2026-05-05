@@ -26,10 +26,25 @@ const repo = vi.hoisted(() => ({
 	recordOtpFailedAttempt: vi.fn(),
 	updateAuthLastRefresh: vi.fn(),
 	findAuthByDeviceId: vi.fn(),
+	upsertTrustedDevice: vi.fn(),
 }));
 
 const email = vi.hoisted(() => ({
 	sendOtp: vi.fn(),
+}));
+
+const jwt = vi.hoisted(() => ({
+	generateAccessToken: vi.fn().mockResolvedValue('access-token'),
+	verifyToken: vi.fn().mockResolvedValue({
+		userId: 'user-1',
+		email: 'user@example.com',
+		sessionId: 'auth-1',
+		deviceId: '00000000-0000-4000-8000-000000000001',
+		jti: 'auth-1',
+		type: 'access',
+		iat: 1,
+		exp: 2,
+	}),
 }));
 
 vi.mock('../repositories', () => repo);
@@ -37,10 +52,7 @@ vi.mock('./email.service', () => ({
 	EmailService: vi.fn().mockImplementation(() => email),
 }));
 vi.mock('./jwt.service', () => ({
-	JwtService: vi.fn().mockImplementation(() => ({
-		generateAccessToken: vi.fn().mockResolvedValue('access-token'),
-		verifyToken: vi.fn().mockResolvedValue({ userId: 'user-1', email: 'user@example.com' }),
-	})),
+	JwtService: vi.fn().mockImplementation(() => jwt),
 }));
 
 const { AuthService } = await import('./auth.service');
@@ -117,6 +129,7 @@ describe('AuthService OTP hardening', () => {
 		repo.recordOtpFailedAttempt.mockResolvedValue({ failedAttempts: 1, lockedUntil: null });
 		repo.deleteOtpByDeviceAndEmail.mockResolvedValue(undefined);
 		repo.createAuthSession.mockResolvedValue({ id: 'auth-1' });
+		repo.upsertTrustedDevice.mockResolvedValue({ id: 'trusted-1' });
 		email.sendOtp.mockResolvedValue(undefined);
 	});
 
@@ -193,6 +206,74 @@ describe('AuthService OTP hardening', () => {
 			user.email,
 		);
 		expect(repo.createAuthSession).toHaveBeenCalled();
+		expect(jwt.generateAccessToken).toHaveBeenCalledWith({
+			userId: user.id,
+			email: user.email,
+			sessionId: expect.any(String),
+			deviceId: '00000000-0000-4000-8000-000000000001',
+		});
+	});
+
+	it('stores trusted device state separately from the active session', async () => {
+		repo.findOtpByDeviceAndEmail.mockResolvedValue(await otpRow('123456'));
+		const service = makeService();
+
+		await service.verifyOtp({
+			email: user.email,
+			otp: 123456,
+			deviceUuId: '00000000-0000-4000-8000-000000000001',
+			isTrusted: true,
+		}, { ipAddress: '203.0.113.10' });
+
+		expect(repo.createAuthSession).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.any(String),
+			user.id,
+			'00000000-0000-4000-8000-000000000001',
+			false,
+		);
+		expect(repo.upsertTrustedDevice).toHaveBeenCalledWith(
+			expect.anything(),
+			user.id,
+			'00000000-0000-4000-8000-000000000001',
+		);
+	});
+
+	it('trusted-device login creates a fresh active session token', async () => {
+		repo.findTrustedAuthByDeviceAndUser.mockResolvedValue({
+			id: 'trusted-1',
+			userId: user.id,
+			deviceId: '00000000-0000-4000-8000-000000000001',
+			trustedAt: new Date(),
+		});
+		const service = makeService();
+
+		await expect(service.requestOtp({
+			email: user.email,
+			deviceUuId: '00000000-0000-4000-8000-000000000001',
+			turnstileToken: 'turnstile-token',
+		}, { ipAddress: '203.0.113.10' })).resolves.toMatchObject({
+			success: true,
+			accessToken: 'access-token',
+			message: 'Logged in with trusted device',
+		});
+
+		expect(repo.deleteAuthByDeviceId).toHaveBeenCalledWith(
+			expect.anything(),
+			'00000000-0000-4000-8000-000000000001',
+		);
+		expect(repo.createAuthSession).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.any(String),
+			user.id,
+			'00000000-0000-4000-8000-000000000001',
+			false,
+		);
+		expect(jwt.generateAccessToken).toHaveBeenCalledWith(expect.objectContaining({
+			userId: user.id,
+			sessionId: expect.any(String),
+			deviceId: '00000000-0000-4000-8000-000000000001',
+		}));
 	});
 
 	it('rejects verification before OTP lookup when rate limited', async () => {
@@ -327,5 +408,80 @@ describe('AuthService OTP hardening', () => {
 			remoteip: '198.51.100.4',
 		});
 		expect(repo.createOtp).toHaveBeenCalled();
+	});
+
+	it('logout deletes the active auth row even when the device is trusted', async () => {
+		repo.findAuthByDeviceId.mockResolvedValue({
+			id: 'auth-1',
+			userId: user.id,
+			deviceId: '00000000-0000-4000-8000-000000000001',
+			lastRefresh: new Date(),
+			isTrusted: true,
+			trustedAt: new Date(),
+		});
+		const service = makeService();
+
+		await expect(service.logout({
+			deviceId: '00000000-0000-4000-8000-000000000001',
+		}, { id: user.id })).resolves.toEqual({ success: true });
+
+		expect(repo.deleteAuthByDeviceId).toHaveBeenCalledWith(
+			expect.anything(),
+			'00000000-0000-4000-8000-000000000001',
+		);
+	});
+
+	it('refresh rejects a token whose session id does not match the active device session', async () => {
+		repo.findAuthByDeviceId.mockResolvedValue({
+			id: 'auth-2',
+			userId: user.id,
+			deviceId: '00000000-0000-4000-8000-000000000001',
+			lastRefresh: new Date(),
+			isTrusted: false,
+			trustedAt: null,
+		});
+		repo.findUserById.mockResolvedValue(user);
+		jwt.verifyToken.mockResolvedValueOnce({
+			userId: user.id,
+			email: user.email,
+			sessionId: 'auth-1',
+			deviceId: '00000000-0000-4000-8000-000000000001',
+			jti: 'auth-1',
+			type: 'access',
+			iat: 1,
+			exp: 2,
+		});
+		const service = makeService();
+
+		await expect(service.refreshToken({
+			deviceId: '00000000-0000-4000-8000-000000000001',
+		}, 'Bearer old-token')).rejects.toThrow('Token does not match active session');
+
+		expect(repo.updateAuthLastRefresh).not.toHaveBeenCalled();
+	});
+
+	it('refresh reissues tokens for the exact active session', async () => {
+		repo.findAuthByDeviceId.mockResolvedValue({
+			id: 'auth-1',
+			userId: user.id,
+			deviceId: '00000000-0000-4000-8000-000000000001',
+			lastRefresh: new Date(),
+			isTrusted: false,
+			trustedAt: null,
+		});
+		repo.findUserById.mockResolvedValue(user);
+		const service = makeService();
+
+		await expect(service.refreshToken({
+			deviceId: '00000000-0000-4000-8000-000000000001',
+		}, 'Bearer current-token')).resolves.toEqual({ accessToken: 'access-token' });
+
+		expect(repo.updateAuthLastRefresh).toHaveBeenCalledWith(expect.anything(), 'auth-1');
+		expect(jwt.generateAccessToken).toHaveBeenCalledWith({
+			userId: user.id,
+			email: user.email,
+			sessionId: 'auth-1',
+			deviceId: '00000000-0000-4000-8000-000000000001',
+		});
 	});
 });

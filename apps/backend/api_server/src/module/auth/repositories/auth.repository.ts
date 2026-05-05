@@ -1,6 +1,6 @@
 import { eq, and } from 'drizzle-orm';
 import {DB} from "../../../core/db";
-import {auths} from "../../../core/db/schema";
+import {auths, trustedDevices} from "../../../core/db/schema";
 
 export async function createAuthSession(
 	db: DB,
@@ -30,6 +30,19 @@ export async function findAuthByUserId(db: DB, userId: string) {
 export async function findAuthById(db: DB, authId: string) {
 	return db.query.auths.findFirst({
 		where: (auths, { eq }) => eq(auths.id, authId),
+	});
+}
+
+export async function findActiveAuthSession(
+	db: DB,
+	input: { userId: string; sessionId: string; deviceId: string },
+) {
+	return db.query.auths.findFirst({
+		where: (auths, { eq, and }) => and(
+			eq(auths.id, input.sessionId),
+			eq(auths.userId, input.userId),
+			eq(auths.deviceId, input.deviceId),
+		),
 	});
 }
 
@@ -66,30 +79,48 @@ export async function findAuthsByUserId(db: DB, userId: string) {
 }
 
 export async function markDeviceAsTrusted(db: DB, authId: string) {
-	await db.update(auths)
-		.set({
-			isTrusted: true,
-			trustedAt: new Date(),
-		})
-		.where(eq(auths.id, authId));
+	const auth = await findAuthById(db, authId);
+	if (!auth) return;
+	await upsertTrustedDevice(db, auth.userId, auth.deviceId);
 }
 
 export async function findTrustedDevicesByUserId(db: DB, userId: string) {
-	return db.query.auths.findMany({
-		where: (auths, { eq, and }) => and(
-			eq(auths.userId, userId),
-			eq(auths.isTrusted, true)
-		),
+	return db.query.trustedDevices.findMany({
+		where: (trustedDevices, { eq }) => eq(trustedDevices.userId, userId),
 	});
 }
 
 export async function findTrustedAuthByDeviceAndUser(db: DB, deviceId: string, userId: string) {
-	return db.query.auths.findFirst({
-		where: (auths, { eq, and }) => and(
-			eq(auths.deviceId, deviceId),
-			eq(auths.userId, userId),
-			eq(auths.isTrusted, true)
+	return findTrustedDeviceByDeviceAndUser(db, deviceId, userId);
+}
+
+export async function findTrustedDeviceByDeviceAndUser(db: DB, deviceId: string, userId: string) {
+	return db.query.trustedDevices.findFirst({
+		where: (trustedDevices, { eq, and }) => and(
+			eq(trustedDevices.deviceId, deviceId),
+			eq(trustedDevices.userId, userId)
 		),
 	});
 }
 
+export async function upsertTrustedDevice(db: DB, userId: string, deviceId: string) {
+	const now = new Date();
+	const [trustedDevice] = await db.insert(trustedDevices)
+		.values({
+			id: crypto.randomUUID(),
+			userId,
+			deviceId,
+			trustedAt: now,
+			updatedAt: now,
+		})
+		.onConflictDoUpdate({
+			target: [trustedDevices.userId, trustedDevices.deviceId],
+			set: {
+				trustedAt: now,
+				updatedAt: now,
+			},
+		})
+		.returning();
+
+	return trustedDevice;
+}

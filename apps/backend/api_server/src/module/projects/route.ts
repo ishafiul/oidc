@@ -137,7 +137,7 @@ async function requireAuthenticated(context: unknown): Promise<AuthedContext> {
 	}
 
 	const payload = await extractAndVerifyToken(token, ctx.env.JWT_SECRET ?? '');
-	const user = await validateUser(ctx, payload.userId);
+	const user = await validateUser(ctx, payload);
 	ctx.c.set('user', user);
 
 	return {

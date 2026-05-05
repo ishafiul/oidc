@@ -6,10 +6,10 @@
 import {TRPCContext} from "../context";
 import {SelectUser, users} from "../db/schema";
 import {eq} from "drizzle-orm";
-import {verify} from "hono/jwt";
-import {DB} from "../db";
-import {findAuthByUserId, isUserBanned} from "../../module/auth/repositories";
+import {findActiveAuthSession, isUserBanned} from "../../module/auth/repositories";
+import { JwtService, type AccessTokenPayload } from "../../module/auth/services/jwt.service";
 
+const AUTH_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 // ============================================
 // User Validation
@@ -21,10 +21,11 @@ import {findAuthByUserId, isUserBanned} from "../../module/auth/repositories";
  */
 export async function validateUser(
     ctx: TRPCContext,
-    userId: string
+    payload: AccessTokenPayload
 ): Promise<SelectUser> {
     const { c } = ctx;
     const db = c.get('db');
+    const userId = payload.userId;
 
     const [foundUser] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
 
@@ -37,8 +38,18 @@ export async function validateUser(
         throw new Error('User account is banned');
     }
 
-    const authSession = await findAuthByUserId(db, userId);
+    const authSession = await findActiveAuthSession(db, {
+        userId,
+        sessionId: payload.sessionId,
+        deviceId: payload.deviceId,
+    });
     if (!authSession) {
+        throw new Error('Session not found or expired');
+    }
+
+    const lastRefreshDate = authSession.lastRefresh ?? new Date(0);
+    const maxValidTime = new Date(lastRefreshDate.getTime() + AUTH_SESSION_TTL_MS);
+    if (new Date() >= maxValidTime) {
         throw new Error('Session not found or expired');
     }
 
@@ -55,9 +66,9 @@ export async function validateUser(
 async function verifyToken(
     token: string,
     jwtSecret: string
-): Promise<{ userId: string; email: string }> {
-    const verified = await verify(token, jwtSecret, 'HS256');
-    return verified as { userId: string; email: string };
+): Promise<AccessTokenPayload> {
+    const service = new JwtService(jwtSecret);
+    return service.verifyToken(token);
 }
 
 /**
@@ -66,7 +77,7 @@ async function verifyToken(
 export async function extractAndVerifyToken(
     authHeader: string | null | undefined,
     jwtSecret: string
-): Promise<{ userId: string; email: string }> {
+): Promise<AccessTokenPayload> {
     if (!authHeader) {
         throw new Error('No authorization header');
     }
@@ -78,4 +89,3 @@ export async function extractAndVerifyToken(
 
     return verifyToken(token, jwtSecret);
 }
-
